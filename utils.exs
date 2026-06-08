@@ -1,5 +1,5 @@
 defmodule Utils do
-  defmacro todo(msg \\ "Not implemented") when is_binary(msg) do
+  defmacro todo(msg \\ "Not implemented") do
     file = __CALLER__.file
     mod = __CALLER__.module
     {func, arity} = __CALLER__.function
