@@ -16,7 +16,6 @@ defmodule Evaluator do
 end
 
 defmodule Lexer do
-  alias ElixirLS.LanguageServer.DocLinks
   require Utils
   import Utils
 
