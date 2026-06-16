@@ -35,10 +35,10 @@ defmodule Lexer do
     def int(), do: :int
   end
 
-  def lex(_file_path, _char, rest, result) when is_list(result) and rest === "", do: result
+  defp do_lex(_file_path, _char, rest, result) when is_list(result) and rest === "", do: result
 
   #oparen
-  def lex(file_path, char, rest, result) when is_list(result) and char === "(" do
+  defp do_lex(file_path, char, rest, result) when is_list(result) and char === "(" do
     value = "("
     lexer = %__MODULE__{
       file_path: file_path,
@@ -49,11 +49,11 @@ defmodule Lexer do
     }
     result = [lexer | result]
     {char, rest} = String.trim_leading(rest) |> String.split_at(1)
-    lex file_path, char, rest, result
+    do_lex file_path, char, rest, result
   end
 
   #cparen
-  def lex(file_path, char, rest, result) when is_list(result) and char === ")" do
+  defp do_lex(file_path, char, rest, result) when is_list(result) and char === ")" do
     value = ")"
     lexer = %__MODULE__{
       file_path: file_path,
@@ -64,11 +64,11 @@ defmodule Lexer do
     }
     result = [lexer | result]
     {char, rest} = String.trim_leading(rest) |> String.split_at(1)
-    lex file_path, char, rest, result
+    do_lex file_path, char, rest, result
   end
 
   #int
-  def lex(file_path, char, rest, result) when is_list(result) and is_numeric(char) do
+  defp do_lex(file_path, char, rest, result) when is_list(result) and is_numeric(char) do
     value = char<>parse_integer(rest)
     lexer = %__MODULE__{
       file_path: file_path,
@@ -79,11 +79,11 @@ defmodule Lexer do
     }
     {_, rest} = String.split_at(rest, String.length(value) - 1) # chop remaining numbers
     {char, rest} = String.trim_leading(rest) |> String.split_at(1)
-    lex file_path, char, rest, [lexer | result]
+    do_lex file_path, char, rest, [lexer | result]
   end
 
   #dqstring
-  def lex(file_path, char, rest, result) when is_list(result) and char === "\"" do
+  defp do_lex(file_path, char, rest, result) when is_list(result) and char === "\"" do
     # TODO: handle escaping and such
 
     charlist = String.to_charlist(rest)
@@ -103,17 +103,17 @@ defmodule Lexer do
       file_path: file_path,
       token: Token.string(),
       value: value,
+      row: -1,
+      col: -1,
     }
     result = [lexer | result]
     {_, rest} = String.split_at(rest, 1) # remove final double quote
     {char, rest} = chop_right(rest)
-    lex file_path, char, rest, result
+    do_lex file_path, char, rest, result
   end
 
-  @doc """
-  identifier base case
-  """
-  def lex(file_path, char, rest, result) when is_list(result) do
+  #identifier base case
+  defp do_lex(file_path, char, rest, result) when is_list(result) do
     space_index = String.split(rest, "", trim: true)
       |> (Enum.find_index &is_whitespace/1)
     if is_nil(space_index) do
@@ -136,7 +136,7 @@ defmodule Lexer do
     }
     result = [lexer | result]
     {char, rest} = String.trim_leading(rest) |> String.split_at(1)
-    lex file_path, char, rest, result
+    do_lex file_path, char, rest, result
   end
 
   defp parse_identifier_token(_char, _rest) do
@@ -162,7 +162,7 @@ defmodule Lexer do
   def lex(file_path, contents) do
     {char, rest} = String.split_at(contents, 1)
     rest = String.trim_leading(rest)
-    lex(file_path, char, rest, []);
+    do_lex(file_path, char, rest, []);
   end
 end
 
