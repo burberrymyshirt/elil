@@ -77,11 +77,8 @@ defmodule Lexer do
       row: -1,
       col: -1,
     }
-    dump "Rest0: " <>rest
     {_, rest} = String.split_at(rest, String.length(value) - 1) # chop remaining numbers
-    dump "Rest1: " <>rest
     {char, rest} = String.trim_leading(rest) |> String.split_at(1)
-    dump "Rest2: " <>rest
     lex file_path, char, rest, [lexer | result]
   end
 
@@ -126,7 +123,6 @@ defmodule Lexer do
     {value, rest} = String.split_at(rest, space_index)
     value = char<>value
     if (! String.match?(value, ~r/^[a-zA-Z0-9\_\-\?]+$/)) do
-      IO.inspect(result)
       error_log "invalid identifier found #{value}" # add char not allowed to error message and maybe the actual found identifier
       exit {:shutdown, 1}
     end
