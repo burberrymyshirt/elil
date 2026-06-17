@@ -2,6 +2,10 @@
 
 Code.require_file "./utils.exs"
 
+defmodule Elil.Logger do
+  def error_log(msg), do: IO.puts msg
+end
+
 defmodule Evaluator do
   require Utils
   import Utils

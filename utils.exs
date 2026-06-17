@@ -34,32 +34,15 @@ defmodule Utils do
     print_usage rest
   end
 
-  def error_log(msg) when is_bitstring(msg) do
-    # TODO: maybe make into macro and accept row and column for proper error logging
-    IO.puts(msg)
-  end
-
   defmacro is_whitespace(char) do
     quote do
-      unquote(char) === "\s" or
-      unquote(char) === "\t" or
-      unquote(char) === "\n" or
-      unquote(char) === "\r"
+      unquote(char) in [?\s, ?\t, ?\r, ?\n]
     end
   end
 
   defmacro is_numeric(char) do
     quote do
-      unquote(char) === "0" or
-      unquote(char) === "1" or
-      unquote(char) === "2" or
-      unquote(char) === "3" or
-      unquote(char) === "4" or
-      unquote(char) === "5" or
-      unquote(char) === "6" or
-      unquote(char) === "7" or
-      unquote(char) === "8" or
-      unquote(char) === "9"
+      unquote(char) in ?0..?9
     end
   end
 end
