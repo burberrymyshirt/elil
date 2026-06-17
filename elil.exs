@@ -13,7 +13,7 @@ defmodule Evaluator do
   def parse(file, file_path) when is_pid(file) or is_atom(file) do
     # TODO: we just assume file is a valid atom or pid, so add validate_file or something
     contents = IO.read file, :eof
-    lexer = Lexer.lex contents,file_path
+    lexer = Lexer.lex contents, file_path
     IO.inspect lexer
     todo()
   end
