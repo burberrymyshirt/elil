@@ -34,12 +34,6 @@ defmodule Utils do
     print_usage rest
   end
 
-  defmacro is_whitespace(char) do
-    quote do
-      unquote(char) in [?\s, ?\t, ?\r, ?\n]
-    end
-  end
-
   defmacro is_numeric(char) do
     quote do
       unquote(char) in ?0..?9
