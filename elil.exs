@@ -37,14 +37,6 @@ defmodule Lexer do
       :total_newlines,
       :chars_since_last_newline,
     ]
-
-    def new(
-      file_path \\ "",
-      current_char \\ "",
-      src_rest \\ "",
-      total_newlines \\ 0,
-      chars_since_last_newline \\ 0
-    ), do: struct(__MODULE__, binding())
   end
 
   defmodule Token do
@@ -58,7 +50,13 @@ defmodule Lexer do
   def lex(file_path, contents) do
     {char, rest} = String.trim_leading(contents) |> String.split_at(1)
     rest = String.trim_leading(rest)
-    context = Context.new(file_path, char, rest)
+    context = %Context{
+      file_path: file_path,
+      current_char: char,
+      src_rest: rest,
+      total_newlines: 0,
+      chars_since_last_newline: 0,
+    }
     do_lex(context, []);
   end
 
@@ -171,10 +169,12 @@ defmodule Lexer do
     do_lex struct!(context, context_updates), result
   end
 
-  defp parse_integer(rest, result \\ "") do
+  defp parse_integer(rest), do: do_parse_integer(rest, "")
+
+  defp do_parse_integer(rest, result) do
     {char, rest} = String.split_at(rest, 1)
     case char do
-      char when is_numeric(char) -> parse_integer rest, result<>char
+      char when is_numeric(char) -> do_parse_integer rest, result<>char
       _ -> result
     end
   end
