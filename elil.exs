@@ -19,13 +19,33 @@ defmodule Lexer do
   require Utils
   import Utils
 
+  @enforce_keys [:file_path, :token, :value, :row, :col]
   defstruct [
     file_path: nil,
     token: nil,
     value: nil,
-    row: nil,
-    col: nil,
+    row: -1,
+    col: -1,
   ]
+
+  defmodule Context do
+    @enforce_keys [:file_path, :current_char, :src_rest, :total_newlines, :chars_since_last_newline]
+    defstruct [
+      :file_path,
+      :current_char,
+      :src_rest,
+      :total_newlines,
+      :chars_since_last_newline,
+    ]
+
+    def new(
+      file_path \\ "",
+      current_char \\ "",
+      src_rest \\ "",
+      total_newlines \\ 0,
+      chars_since_last_newline \\ 0
+    ), do: struct(__MODULE__, binding())
+  end
 
   defmodule Token do
     def oparen(), do: :oparen
@@ -35,58 +55,69 @@ defmodule Lexer do
     def int(), do: :int
   end
 
-  defp do_lex(_file_path, _char, rest, result) when is_list(result) and rest === "", do: result
+  def lex(file_path, contents) do
+    {char, rest} = String.trim_leading(contents) |> String.split_at(1)
+    rest = String.trim_leading(rest)
+    context = Context.new(file_path, char, rest)
+    do_lex(context, []);
+  end
+
+  defp do_lex(%Context{src_rest: rest} = _context, result) when is_list(result) and rest === "", do: result
 
   #oparen
-  defp do_lex(file_path, char, rest, result) when is_list(result) and char === "(" do
+  defp do_lex(%Context{current_char: char} = context, result) when is_list(result) and char === "(" do
     value = "("
     lexer = %__MODULE__{
-      file_path: file_path,
+      file_path: context.file_path,
       token: Token.oparen(),
       value: value,
       row: -1,
       col: -1,
     }
     result = [lexer | result]
-    {char, rest} = String.trim_leading(rest) |> String.split_at(1)
-    do_lex file_path, char, rest, result
+    {char, rest} = String.trim_leading(context.src_rest) |> String.split_at(1)
+    context_updates = [current_char: char, src_rest: rest]
+    do_lex struct!(context, context_updates), result
   end
 
   #cparen
-  defp do_lex(file_path, char, rest, result) when is_list(result) and char === ")" do
+  defp do_lex(%Context{current_char: char} = context, result) when is_list(result) and char === ")" do
     value = ")"
     lexer = %__MODULE__{
-      file_path: file_path,
+      file_path: context.file_path,
       token: Token.cparen(),
       value: value,
       row: -1,
       col: -1,
     }
     result = [lexer | result]
-    {char, rest} = String.trim_leading(rest) |> String.split_at(1)
-    do_lex file_path, char, rest, result
+    {char, rest} = String.trim_leading(context.src_rest) |> String.split_at(1)
+    context_updates = [current_char: char, src_rest: rest]
+    do_lex struct!(context, context_updates), result
   end
 
   #int
-  defp do_lex(file_path, char, rest, result) when is_list(result) and is_numeric(char) do
-    value = char<>parse_integer(rest)
+  defp do_lex(%Context{current_char: char} = context, result) when is_list(result) and is_numeric(char) do
+    value = context.current_char<>parse_integer(context.src_rest)
     lexer = %__MODULE__{
-      file_path: file_path,
+      file_path: context.file_path,
       token: Token.int(),
       value: value,
       row: -1,
       col: -1,
     }
-    {_, rest} = String.split_at(rest, String.length(value) - 1) # chop remaining numbers
+    result = [lexer | result]
+    {_, rest} = String.split_at(context.src_rest, String.length(value) - 1) # chop remaining numbers
     {char, rest} = String.trim_leading(rest) |> String.split_at(1)
-    do_lex file_path, char, rest, [lexer | result]
+    context_updates = [current_char: char, src_rest: rest]
+    do_lex struct!(context, context_updates), result
   end
 
   #dqstring
-  defp do_lex(file_path, char, rest, result) when is_list(result) and char === "\"" do
+  defp do_lex(%Context{current_char: char} = context, result) when is_list(result) and char === "\"" do
     # TODO: handle escaping and such
 
-    charlist = String.to_charlist(rest)
+    charlist = String.to_charlist(context.src_rest)
     nl_index = Enum.find_index(charlist, fn c -> c === ?\n end)
     dq_index = (Enum.find_index charlist, (fn c -> c === ?" end))
     if is_nil(dq_index) do
@@ -98,9 +129,9 @@ defmodule Lexer do
       exit {:shutdown, 1}
     end
 
-    {value, rest} = String.split_at(rest, dq_index)
+    {value, rest} = String.split_at(context.src_rest, dq_index)
     lexer = %__MODULE__{
-      file_path: file_path,
+      file_path: context.file_path,
       token: Token.string(),
       value: value,
       row: -1,
@@ -109,38 +140,35 @@ defmodule Lexer do
     result = [lexer | result]
     {_, rest} = String.split_at(rest, 1) # remove final double quote
     {char, rest} = chop_right(rest)
-    do_lex file_path, char, rest, result
+    context_updates = [current_char: char, src_rest: rest]
+    do_lex struct!(context, context_updates), result
   end
 
   #identifier base case
-  defp do_lex(file_path, char, rest, result) when is_list(result) do
-    space_index = String.split(rest, "", trim: true)
+  defp do_lex(context, result) when is_list(result) do
+    space_index = String.split(context.src_rest, "", trim: true)
       |> (Enum.find_index &is_whitespace/1)
     if is_nil(space_index) do
       error_log "invalid identifier found" # TODO: make this make sense <:-}
       exit {:shutdown, 1}
     end
-    {value, rest} = String.split_at(rest, space_index)
-    value = char<>value
+    {value, rest} = String.split_at(context.src_rest, space_index)
+    value = context.current_char<>value
     if (! String.match?(value, ~r/^[a-zA-Z0-9\_\-\?]+$/)) do
       error_log "invalid identifier found #{value}" # add char not allowed to error message and maybe the actual found identifier
       exit {:shutdown, 1}
     end
-    token = parse_identifier_token(char, rest)
     lexer = %__MODULE__{
-      file_path: file_path,
-      token: token,
+      file_path: context.file_path,
+      token: Token.ident(),
       value: value,
       row: -1,
       col: -1,
     }
     result = [lexer | result]
     {char, rest} = String.trim_leading(rest) |> String.split_at(1)
-    do_lex file_path, char, rest, result
-  end
-
-  defp parse_identifier_token(_char, _rest) do
-    Token.ident()
+    context_updates = [current_char: char, src_rest: rest]
+    do_lex struct!(context, context_updates), result
   end
 
   defp parse_integer(rest, result \\ "") do
@@ -152,17 +180,12 @@ defmodule Lexer do
   end
 
   defp chop_right(str) do
+    #handle escaped sequences. E.g. newlines written in src are \\n whereas actual newlines are \n
     if String.starts_with?(str, "\\") do
       String.split_at(str, 2)
     else
       String.split_at(str, 1)
     end
-  end
-
-  def lex(file_path, contents) do
-    {char, rest} = String.split_at(contents, 1)
-    rest = String.trim_leading(rest)
-    do_lex(file_path, char, rest, []);
   end
 end
 
