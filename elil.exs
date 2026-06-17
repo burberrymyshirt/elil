@@ -181,8 +181,8 @@ defmodule Lexer do
 
   defp parse_identifier(<<char, rest::binary>>, result)
     when char in ?A..?z
-    when char in [?_, ?-, ??]
-    when char in [?æ, ?ø, ?å, ?Æ, ?Ø, ?Å] do
+      when char in [?_, ?-, ??]
+        when char in [?æ, ?ø, ?å, ?Æ, ?Ø, ?Å] do
     parse_identifier(rest, [char | result])
   end
 
