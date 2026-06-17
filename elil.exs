@@ -6,7 +6,8 @@ defmodule Elil.Logger do
   def error_log(msg), do: IO.puts msg
 end
 
-defmodule Evaluator do
+defmodule Elil.Evaluator do
+  alias Elil.Lexer, as: Lexer
   require Utils
   import Utils
 
@@ -19,12 +20,11 @@ defmodule Evaluator do
   end
 end
 
-defmodule Lexer do
+defmodule Elil.Lexer do
   require Utils
   import Utils
-  alias Elil.Logger
-  require Logger
-  import Logger
+  require Elil.Logger
+  import Elil.Logger
 
   @enforce_keys [:file_path, :token, :value, :row, :col]
   defstruct [
@@ -43,6 +43,10 @@ defmodule Lexer do
       :total_newlines,
       :chars_since_last_newline,
     ]
+
+    def current_column(%Context{chars_since_last_newline: col}), do: col + 1
+
+    def current_row(%Context{total_newlines: nl}), do: nl + 1
   end
 
   defmodule Token do
@@ -95,10 +99,10 @@ defmodule Lexer do
       file_path: context.file_path,
       token: Token.oparen(),
       value: value,
-      row: -1,
-      col: -1,
+      row: Context.current_row(context),
+      col: Context.current_column(context),
     }
-    context_updates = [src_rest: rest]
+    context_updates = [src_rest: rest, chars_since_last_newline: context.chars_since_last_newline + String.length(value)]
     do_lex struct!(context, context_updates), [lexer | result]
   end
 
@@ -109,10 +113,10 @@ defmodule Lexer do
       file_path: context.file_path,
       token: Token.cparen(),
       value: value,
-      row: -1,
-      col: -1,
+      row: Context.current_row(context),
+      col: Context.current_column(context),
     }
-    context_updates = [src_rest: rest]
+    context_updates = [src_rest: rest, chars_since_last_newline: context.chars_since_last_newline + String.length(value)]
     do_lex struct!(context, context_updates), [lexer | result]
   end
 
@@ -123,10 +127,10 @@ defmodule Lexer do
       file_path: context.file_path,
       token: Token.int(),
       value: value,
-      row: -1,
-      col: -1,
+      row: Context.current_row(context),
+      col: Context.current_column(context),
     }
-    context_updates = [src_rest: rest]
+    context_updates = [src_rest: rest, chars_since_last_newline: context.chars_since_last_newline + String.length(value)]
     do_lex struct!(context, context_updates), [lexer | result]
   end
 
@@ -135,8 +139,8 @@ defmodule Lexer do
     # TODO: handle escaping and such
 
     charlist = String.to_charlist(rest)
-    nl_index = Enum.find_index(charlist, fn c -> c === ?\n end)
-    dq_index = (Enum.find_index charlist, (fn c -> c === ?" end))
+    nl_index = Enum.find_index(charlist, &(&1 === ?\n))
+    dq_index = (Enum.find_index charlist, &(&1 === ?"))
     if is_nil(dq_index) do
       error_log "invalid string found" # make this make sense <:-}
       exit {:shutdown, 1}
@@ -148,16 +152,16 @@ defmodule Lexer do
     end
 
     {value, rest} = String.split_at(rest, dq_index)
+    IO.puts value
     lexer = %__MODULE__{
       file_path: context.file_path,
       token: Token.string(),
       value: value,
-      row: -1,
-      col: -1,
+      row: Context.current_row(context),
+      col: Context.current_column(context),
     }
-    <<_, rest::binary>> = rest # remove final double quote
     rest = chop_right(rest)
-    context_updates = [src_rest: rest]
+    context_updates = [src_rest: rest, chars_since_last_newline: context.chars_since_last_newline + String.length(value) + 2] # +2 for the surrounding quotes
     do_lex struct!(context, context_updates), [lexer | result]
   end
 
@@ -168,10 +172,10 @@ defmodule Lexer do
       file_path: context.file_path,
       token: Token.ident(),
       value: value,
-      row: -1,
-      col: -1,
+      row: Context.current_row(context),
+      col: Context.current_column(context),
     }
-    context_updates = [src_rest: rest]
+    context_updates = [src_rest: rest, chars_since_last_newline: context.chars_since_last_newline + String.length(value)]
     do_lex struct!(context, context_updates), [lexer | result]
   end
 
@@ -189,7 +193,7 @@ defmodule Lexer do
   defp parse_identifier(rest, result) do
     Enum.reverse(result)
     |> List.to_string()
-    |> then(fn (result) -> {result, rest} end)
+    |> then(&({&1, rest}))
   end
 
   defp parse_integer(context, result \\ [])
@@ -203,7 +207,7 @@ defmodule Lexer do
   defp parse_integer(rest, result) do
     Enum.reverse(result)
     |> List.to_string()
-    |> then(fn (result) -> {result, rest} end)
+    |> then(&({&1, rest}))
   end
 
   defp chop_right(str) do
@@ -234,6 +238,6 @@ cond do
       {:error, reason} ->
         Utils.print_usage "Couldn't open file #{file_path}. Reason: #{to_string(reason)}"
       {:ok, fd} ->
-        Evaluator.parse(fd, file_path)
+        Elil.Evaluator.parse(fd, file_path)
     end
 end
