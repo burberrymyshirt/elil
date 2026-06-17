@@ -63,15 +63,14 @@ defmodule Lexer do
     do_lex(context, []);
   end
 
-  defp do_lex(%Context{src_rest: rest} = _context, result) when is_list(result) and rest === "", do: result
+  defp do_lex(%Context{src_rest: rest} = _context, result) when rest === "", do: result
 
   defp do_lex(%Context{src_rest: <<char, rest::binary>>} = context, result) when char in [?\s, ?\t] do
     context_updates = [src_rest: rest, chars_since_last_newline: context.chars_since_last_newline + 1]
     do_lex struct!(context, context_updates), result
   end
 
-  defp do_lex(%Context{src_rest: <<char1, char2, rest::binary>>} = context, result)
-    when char1 === ?\r and char2 === ?\n do
+  defp do_lex(%Context{src_rest: <<?\r, ?\n, rest::binary>>} = context, result) do
     context_updates = [
       src_rest: rest,
       chars_since_last_newline: 0,
@@ -80,7 +79,7 @@ defmodule Lexer do
     do_lex struct!(context, context_updates), result
   end
 
-  defp do_lex(%Context{src_rest: <<char, rest::binary>>} = context, result) when char === ?\n do
+  defp do_lex(%Context{src_rest: <<?\n, rest::binary>>} = context, result) do
     context_updates = [
       src_rest: rest,
       chars_since_last_newline: 0,
@@ -90,7 +89,7 @@ defmodule Lexer do
   end
 
   #oparen
-  defp do_lex(%Context{src_rest: <<?(, rest::binary>>} = context, result) when is_list(result) do
+  defp do_lex(%Context{src_rest: <<?(, rest::binary>>} = context, result) do
     value = "("
     lexer = %__MODULE__{
       file_path: context.file_path,
@@ -104,7 +103,7 @@ defmodule Lexer do
   end
 
   #cparen
-  defp do_lex(%Context{src_rest: <<?), rest::binary>>} = context, result) when is_list(result) do
+  defp do_lex(%Context{src_rest: <<?), rest::binary>>} = context, result) do
     value = ")"
     lexer = %__MODULE__{
       file_path: context.file_path,
@@ -118,7 +117,7 @@ defmodule Lexer do
   end
 
   #int
-  defp do_lex(%Context{src_rest: <<char, _rest::binary>>} = context, result) when char in ?0..?9 do
+  defp do_lex(%Context{src_rest: <<char, _rest::binary>>} = context, result) when is_numeric(char) do
     {value, rest} = parse_integer(context)
     lexer = %__MODULE__{
       file_path: context.file_path,
