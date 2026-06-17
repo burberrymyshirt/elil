@@ -13,7 +13,7 @@ defmodule Evaluator do
   def parse(file, file_path) when is_pid(file) or is_atom(file) do
     # TODO: we just assume file is a valid atom or pid, so add validate_file or something
     contents = IO.read file, :eof
-    lexer = Lexer.lex file_path, contents
+    lexer = Lexer.lex contents,file_path
     IO.inspect lexer
     todo()
   end
@@ -22,6 +22,9 @@ end
 defmodule Lexer do
   require Utils
   import Utils
+  alias Elil.Logger
+  require Logger
+  import Logger
 
   @enforce_keys [:file_path, :token, :value, :row, :col]
   defstruct [
@@ -33,10 +36,9 @@ defmodule Lexer do
   ]
 
   defmodule Context do
-    @enforce_keys [:file_path, :current_char, :src_rest, :total_newlines, :chars_since_last_newline]
+    @enforce_keys [:file_path, :src_rest, :total_newlines, :chars_since_last_newline]
     defstruct [
       :file_path,
-      :current_char,
       :src_rest,
       :total_newlines,
       :chars_since_last_newline,
@@ -51,13 +53,10 @@ defmodule Lexer do
     def int(), do: :int
   end
 
-  def lex(file_path, contents) do
-    {char, rest} = String.trim_leading(contents) |> String.split_at(1)
-    rest = String.trim_leading(rest)
+  def lex(contents, file_path) do
     context = %Context{
       file_path: file_path,
-      current_char: char,
-      src_rest: rest,
+      src_rest: contents,
       total_newlines: 0,
       chars_since_last_newline: 0,
     }
@@ -66,8 +65,32 @@ defmodule Lexer do
 
   defp do_lex(%Context{src_rest: rest} = _context, result) when is_list(result) and rest === "", do: result
 
+  defp do_lex(%Context{src_rest: <<char, rest::binary>>} = context, result) when char in [?\s, ?\t] do
+    context_updates = [src_rest: rest, chars_since_last_newline: context.chars_since_last_newline + 1]
+    do_lex struct!(context, context_updates), result
+  end
+
+  defp do_lex(%Context{src_rest: <<char1, char2, rest::binary>>} = context, result)
+    when char1 === ?\r and char2 === ?\n do
+    context_updates = [
+      src_rest: rest,
+      chars_since_last_newline: 0,
+      total_newlines: context.total_newlines + 1,
+    ]
+    do_lex struct!(context, context_updates), result
+  end
+
+  defp do_lex(%Context{src_rest: <<char, rest::binary>>} = context, result) when char === ?\n do
+    context_updates = [
+      src_rest: rest,
+      chars_since_last_newline: 0,
+      total_newlines: context.total_newlines + 1,
+    ]
+    do_lex struct!(context, context_updates), result
+  end
+
   #oparen
-  defp do_lex(%Context{current_char: char} = context, result) when is_list(result) and char === "(" do
+  defp do_lex(%Context{src_rest: <<?(, rest::binary>>} = context, result) when is_list(result) do
     value = "("
     lexer = %__MODULE__{
       file_path: context.file_path,
@@ -76,14 +99,12 @@ defmodule Lexer do
       row: -1,
       col: -1,
     }
-    result = [lexer | result]
-    {char, rest} = String.trim_leading(context.src_rest) |> String.split_at(1)
-    context_updates = [current_char: char, src_rest: rest]
-    do_lex struct!(context, context_updates), result
+    context_updates = [src_rest: rest]
+    do_lex struct!(context, context_updates), [lexer | result]
   end
 
   #cparen
-  defp do_lex(%Context{current_char: char} = context, result) when is_list(result) and char === ")" do
+  defp do_lex(%Context{src_rest: <<?), rest::binary>>} = context, result) when is_list(result) do
     value = ")"
     lexer = %__MODULE__{
       file_path: context.file_path,
@@ -92,15 +113,13 @@ defmodule Lexer do
       row: -1,
       col: -1,
     }
-    result = [lexer | result]
-    {char, rest} = String.trim_leading(context.src_rest) |> String.split_at(1)
-    context_updates = [current_char: char, src_rest: rest]
-    do_lex struct!(context, context_updates), result
+    context_updates = [src_rest: rest]
+    do_lex struct!(context, context_updates), [lexer | result]
   end
 
   #int
-  defp do_lex(%Context{current_char: char} = context, result) when is_list(result) and is_numeric(char) do
-    value = context.current_char<>parse_integer(context.src_rest)
+  defp do_lex(%Context{src_rest: <<char, _rest::binary>>} = context, result) when char in ?0..?9 do
+    {value, rest} = parse_integer(context)
     lexer = %__MODULE__{
       file_path: context.file_path,
       token: Token.int(),
@@ -108,18 +127,15 @@ defmodule Lexer do
       row: -1,
       col: -1,
     }
-    result = [lexer | result]
-    {_, rest} = String.split_at(context.src_rest, String.length(value) - 1) # chop remaining numbers
-    {char, rest} = String.trim_leading(rest) |> String.split_at(1)
-    context_updates = [current_char: char, src_rest: rest]
-    do_lex struct!(context, context_updates), result
+    context_updates = [src_rest: rest]
+    do_lex struct!(context, context_updates), [lexer | result]
   end
 
   #dqstring
-  defp do_lex(%Context{current_char: char} = context, result) when is_list(result) and char === "\"" do
+  defp do_lex(%Context{src_rest: <<?", rest::binary>>} = context, result) do
     # TODO: handle escaping and such
 
-    charlist = String.to_charlist(context.src_rest)
+    charlist = String.to_charlist(rest)
     nl_index = Enum.find_index(charlist, fn c -> c === ?\n end)
     dq_index = (Enum.find_index charlist, (fn c -> c === ?" end))
     if is_nil(dq_index) do
@@ -127,11 +143,12 @@ defmodule Lexer do
       exit {:shutdown, 1}
     end
     if nl_index < dq_index do
+      # TODO: if we do decide to use multiline strings, we need to handle newlines as well
       todo "multiline strings are not implemented yet"
       exit {:shutdown, 1}
     end
 
-    {value, rest} = String.split_at(context.src_rest, dq_index)
+    {value, rest} = String.split_at(rest, dq_index)
     lexer = %__MODULE__{
       file_path: context.file_path,
       token: Token.string(),
@@ -139,27 +156,15 @@ defmodule Lexer do
       row: -1,
       col: -1,
     }
-    result = [lexer | result]
-    {_, rest} = String.split_at(rest, 1) # remove final double quote
-    {char, rest} = chop_right(rest)
-    context_updates = [current_char: char, src_rest: rest]
-    do_lex struct!(context, context_updates), result
+    <<_, rest::binary>> = rest # remove final double quote
+    rest = chop_right(rest)
+    context_updates = [src_rest: rest]
+    do_lex struct!(context, context_updates), [lexer | result]
   end
 
   #identifier base case
-  defp do_lex(context, result) when is_list(result) do
-    space_index = String.split(context.src_rest, "", trim: true)
-      |> (Enum.find_index &is_whitespace/1)
-    if is_nil(space_index) do
-      error_log "invalid identifier found" # TODO: make this make sense <:-}
-      exit {:shutdown, 1}
-    end
-    {value, rest} = String.split_at(context.src_rest, space_index)
-    value = context.current_char<>value
-    if (! String.match?(value, ~r/^[a-zA-Z0-9\_\-\?]+$/)) do
-      error_log "invalid identifier found #{value}" # add char not allowed to error message and maybe the actual found identifier
-      exit {:shutdown, 1}
-    end
+  defp do_lex(%Context{} = context, result) do
+    {value, rest} = parse_identifier(context)
     lexer = %__MODULE__{
       file_path: context.file_path,
       token: Token.ident(),
@@ -167,28 +172,49 @@ defmodule Lexer do
       row: -1,
       col: -1,
     }
-    result = [lexer | result]
-    {char, rest} = String.trim_leading(rest) |> String.split_at(1)
-    context_updates = [current_char: char, src_rest: rest]
-    do_lex struct!(context, context_updates), result
+    context_updates = [src_rest: rest]
+    do_lex struct!(context, context_updates), [lexer | result]
   end
 
-  defp parse_integer(rest), do: do_parse_integer(rest, "")
+  defp parse_identifier(context, result \\ [])
 
-  defp do_parse_integer(rest, result) do
-    {char, rest} = String.split_at(rest, 1)
-    case char do
-      char when is_numeric(char) -> do_parse_integer rest, result<>char
-      _ -> result
-    end
+  defp parse_identifier(%Context{src_rest: rest}, result), do: parse_identifier(rest, result)
+
+  defp parse_identifier(<<char, rest::binary>>, result)
+    when char in ?A..?z
+    when char in [?_, ?-, ??]
+    when char in [?æ, ?ø, ?å, ?Æ, ?Ø, ?Å] do
+    parse_identifier(rest, [char | result])
+  end
+
+  defp parse_identifier(rest, result) do
+    Enum.reverse(result)
+    |> List.to_string()
+    |> then(fn (result) -> {result, rest} end)
+  end
+
+  defp parse_integer(context, result \\ [])
+
+  defp parse_integer(%Context{src_rest: rest}, result), do: parse_integer(rest, result)
+
+  defp parse_integer(<<char, rest::binary>>, result) when char in ?0..?9 do
+    parse_integer(rest, [char | result])
+  end
+
+  defp parse_integer(rest, result) do
+    Enum.reverse(result)
+    |> List.to_string()
+    |> then(fn (result) -> {result, rest} end)
   end
 
   defp chop_right(str) do
     #handle escaped sequences. E.g. newlines written in src are \\n whereas actual newlines are \n
     if String.starts_with?(str, "\\") do
-      String.split_at(str, 2)
+      {_, rest} = String.split_at(str, 2)
+      rest
     else
-      String.split_at(str, 1)
+      {_, rest} = String.split_at(str, 1)
+      rest
     end
   end
 end
