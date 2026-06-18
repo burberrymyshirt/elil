@@ -171,7 +171,8 @@ defmodule Elil.Lexer do
   end
 
   defp parse_identifier(rest, result) do
-    Enum.reverse(result)
+    result
+    |> Enum.reverse()
     |> List.to_string()
     |> then(&({&1, rest}))
   end
@@ -185,7 +186,8 @@ defmodule Elil.Lexer do
   end
 
   defp parse_integer(rest, result) do
-    Enum.reverse(result)
+    result
+    |> Enum.reverse()
     |> List.to_string()
     |> then(&({&1, rest}))
   end
