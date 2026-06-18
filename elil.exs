@@ -28,11 +28,11 @@ defmodule Elil.Lexer do
 
   @enforce_keys [:file_path, :token, :value, :row, :col]
   defstruct [
-    file_path: nil,
-    token: nil,
-    value: nil,
-    row: -1,
-    col: -1,
+    :file_path,
+    :token,
+    :value,
+    :row,
+    :col,
   ]
 
   defmodule Context do
@@ -53,7 +53,7 @@ defmodule Elil.Lexer do
     def oparen(), do: :oparen
     def cparen(), do: :cparen
     def ident(), do: :ident
-    def string(), do: :string
+    def dqstring(), do: :dqstring
     def int(), do: :int
   end
 
@@ -80,7 +80,7 @@ defmodule Elil.Lexer do
       chars_since_last_newline: 0,
       total_newlines: context.total_newlines + 1,
     ]
-    do_lex struct!(context, context_updates), result
+    continue_lex context, context_updates, result
   end
 
   defp do_lex(%Context{src_rest: <<?\n, rest::binary>>} = context, result) do
@@ -89,49 +89,28 @@ defmodule Elil.Lexer do
       chars_since_last_newline: 0,
       total_newlines: context.total_newlines + 1,
     ]
-    do_lex struct!(context, context_updates), result
+    continue_lex context, context_updates, result
   end
 
   #oparen
   defp do_lex(%Context{src_rest: <<?(, rest::binary>>} = context, result) do
     value = "("
-    lexer = %__MODULE__{
-      file_path: context.file_path,
-      token: Token.oparen(),
-      value: value,
-      row: Context.current_row(context),
-      col: Context.current_column(context),
-    }
     context_updates = [src_rest: rest, chars_since_last_newline: context.chars_since_last_newline + String.length(value)]
-    do_lex struct!(context, context_updates), [lexer | result]
+    continue_lex {Token.oparen(), value}, context, context_updates, result
   end
 
   #cparen
   defp do_lex(%Context{src_rest: <<?), rest::binary>>} = context, result) do
     value = ")"
-    lexer = %__MODULE__{
-      file_path: context.file_path,
-      token: Token.cparen(),
-      value: value,
-      row: Context.current_row(context),
-      col: Context.current_column(context),
-    }
     context_updates = [src_rest: rest, chars_since_last_newline: context.chars_since_last_newline + String.length(value)]
-    do_lex struct!(context, context_updates), [lexer | result]
+    continue_lex {Token.cparen(), value}, context, context_updates, result
   end
 
   #int
   defp do_lex(%Context{src_rest: <<char, _rest::binary>>} = context, result) when is_numeric(char) do
     {value, rest} = parse_integer(context)
-    lexer = %__MODULE__{
-      file_path: context.file_path,
-      token: Token.int(),
-      value: value,
-      row: Context.current_row(context),
-      col: Context.current_column(context),
-    }
     context_updates = [src_rest: rest, chars_since_last_newline: context.chars_since_last_newline + String.length(value)]
-    do_lex struct!(context, context_updates), [lexer | result]
+    continue_lex {Token.int(), value}, context, context_updates, result
   end
 
   #dqstring
@@ -151,31 +130,32 @@ defmodule Elil.Lexer do
       exit {:shutdown, 1}
     end
 
-    {value, rest} = String.split_at(rest, dq_index)
-    IO.puts value
-    lexer = %__MODULE__{
-      file_path: context.file_path,
-      token: Token.string(),
-      value: value,
-      row: Context.current_row(context),
-      col: Context.current_column(context),
-    }
+    {value, rest} = String.split_at(rest, dq_index) # TODO: refactor to parse_dqstring or something, like integer and identifier
     rest = chop_right(rest)
     context_updates = [src_rest: rest, chars_since_last_newline: context.chars_since_last_newline + String.length(value) + 2] # +2 for the surrounding quotes
-    do_lex struct!(context, context_updates), [lexer | result]
+    continue_lex {Token.dqstring(), value}, context, context_updates, result
   end
 
   #identifier base case
   defp do_lex(%Context{} = context, result) do
     {value, rest} = parse_identifier(context)
+    context_updates = [src_rest: rest, chars_since_last_newline: context.chars_since_last_newline + String.length(value)]
+    continue_lex {Token.ident(), value}, context, context_updates, result
+  end
+
+  defp continue_lex(%Context{} = context, context_updates, result) when is_list(context_updates) and is_list(result) do
+    do_lex struct!(context, context_updates), result
+  end
+
+  defp continue_lex({token, value}, %Context{} = context, context_updates, result) when is_list(context_updates) and is_list(result) and is_atom(token) do
     lexer = %__MODULE__{
       file_path: context.file_path,
-      token: Token.ident(),
+      token: token,
       value: value,
       row: Context.current_row(context),
       col: Context.current_column(context),
     }
-    context_updates = [src_rest: rest, chars_since_last_newline: context.chars_since_last_newline + String.length(value)]
+
     do_lex struct!(context, context_updates), [lexer | result]
   end
 
