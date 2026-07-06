@@ -12,7 +12,10 @@ defmodule Utils do
     end
   end
 
-  def dump(v), do: IO.inspect(v)
+  def dump(v) do
+    IO.inspect(v)
+    v
+  end
 
   @default_usage_msg "Usage: elixir elil.exs [input_file]"
 
