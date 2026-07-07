@@ -19,20 +19,38 @@ defmodule Elil do
     end
 
     def eval(file, file_path) when is_binary(file) do
-      Lexer.lex(file, file_path)
-      |> dump()
-      |> ElilAst.build()
+      {:ok, lexer_pid} = GenServer.start_link(Lexer, {file_path, file}, [hibernate_after: 100])
+      {:ok} = do_eval(lexer_pid)
 
       todo()
+    end
+
+    defp do_eval(nil) do
+      {:ok}
+    end
+
+    defp do_eval(pid) when is_pid(pid) do
+      eof_token = Lexer.Token.eof()
+      case GenServer.call(pid, {:next_token}) do
+        %Lexer{token: ^eof_token} = result ->
+          GenServer.stop(pid)
+          do_eval nil
+        %Lexer{} = result ->
+          handle_eval(result)
+          do_eval pid
+      end
+    end
+
+    defp handle_eval(%Lexer{} = lexer) do
+      dump lexer
     end
   end
 
   defmodule Ast do
     require Utils
     import Utils
-
-    alias DialyxirVendored.Formatter.Utils
     alias Elil.Lexer.LexedFile
+
     def build(%LexedFile{}) do
       todo()
     end
@@ -43,6 +61,7 @@ defmodule Elil do
     import Utils
     require Elil.Logger
     import Elil.Logger
+    use GenServer
 
     @enforce_keys [:token, :value, :row, :col]
     defstruct [
@@ -66,6 +85,7 @@ defmodule Elil do
     end
 
     defmodule Token do
+      def eof(), do: :eof
       def oparen(), do: :oparen
       def cparen(), do: :cparen
       def ident(), do: :ident
@@ -73,70 +93,89 @@ defmodule Elil do
       def int(), do: :int
     end
 
-    defmodule LexedFile do
-      defstruct [
-        :file_path,
-        lexed: [],
-      ]
+    defmodule LexerState do
+      defstruct [:file_path, :context]
     end
 
-    def lex(contents, file_path) do
+    def start_link(default) when is_binary(default) do
+      GenServer.start_link(__MODULE__, default)
+    end
+
+    @impl true
+    def init({file_path, contents}) when is_binary(file_path) and is_binary(contents) do
       context = %Context{
         src_rest: contents,
         total_newlines: 0,
         chars_since_last_newline: 0,
       }
-      do_lex context, %LexedFile{file_path: file_path}
+      {:ok, %LexerState{file_path: file_path, context: context}}
     end
 
-    defp do_lex(%Context{src_rest: rest} = _context, result) when rest === "", do: result
+    @impl true
+    def handle_call({:next_token}, _from, %LexerState{context: context} = lexer_state) do
+      {:ok, %Context{} = context, %Lexer{} = lexer} = do_lex(context)
+      {:reply, lexer, struct!(lexer_state, [context: context])}
+    end
 
-    defp do_lex(%Context{src_rest: <<char, rest::binary>>} = context, result) when char in [?\s, ?\t] do
+    @impl true
+    def handle_cast(request, state) do
+      dump request
+      dump state
+      {:noreply, state}
+    end
+
+    defp do_lex(%Context{src_rest: rest} = context) when rest === "" do
+      value = "";
+      context_updates = [];
+      return_lex {Token.eof(), value}, context, context_updates
+    end
+
+    defp do_lex(%Context{src_rest: <<char, rest::binary>>} = context) when char in [?\s, ?\t] do
       context_updates = [src_rest: rest, chars_since_last_newline: context.chars_since_last_newline + 1]
-      continue_lex context, context_updates, result
+      continue_lex context, context_updates
     end
 
-    defp do_lex(%Context{src_rest: <<?\r, ?\n, rest::binary>>} = context, result) do
+    defp do_lex(%Context{src_rest: <<?\r, ?\n, rest::binary>>} = context) do
       context_updates = [
         src_rest: rest,
         chars_since_last_newline: 0,
         total_newlines: context.total_newlines + 1,
       ]
-      continue_lex context, context_updates, result
+      continue_lex context, context_updates
     end
 
-    defp do_lex(%Context{src_rest: <<?\n, rest::binary>>} = context, result) do
+    defp do_lex(%Context{src_rest: <<?\n, rest::binary>>} = context) do
       context_updates = [
         src_rest: rest,
         chars_since_last_newline: 0,
         total_newlines: context.total_newlines + 1,
       ]
-      continue_lex context, context_updates, result
+      continue_lex context, context_updates
     end
 
     #oparen
-    defp do_lex(%Context{src_rest: <<?(, rest::binary>>} = context, result) do
+    defp do_lex(%Context{src_rest: <<?(, rest::binary>>} = context) do
       value = "("
       context_updates = [src_rest: rest, chars_since_last_newline: context.chars_since_last_newline + String.length(value)]
-      continue_lex {Token.oparen(), value}, context, context_updates, result
+      return_lex {Token.oparen(), value}, context, context_updates
     end
 
     #cparen
-    defp do_lex(%Context{src_rest: <<?), rest::binary>>} = context, result) do
+    defp do_lex(%Context{src_rest: <<?), rest::binary>>} = context) do
       value = ")"
       context_updates = [src_rest: rest, chars_since_last_newline: context.chars_since_last_newline + String.length(value)]
-      continue_lex {Token.cparen(), value}, context, context_updates, result
+      return_lex {Token.cparen(), value}, context, context_updates
     end
 
     #int
-    defp do_lex(%Context{src_rest: <<char, _rest::binary>>} = context, result) when is_numeric(char) do
+    defp do_lex(%Context{src_rest: <<char, _rest::binary>>} = context) when is_numeric(char) do
       {value, rest} = parse_integer(context)
       context_updates = [src_rest: rest, chars_since_last_newline: context.chars_since_last_newline + String.length(value)]
-      continue_lex {Token.int(), value}, context, context_updates, result
+      return_lex {Token.int(), value}, context, context_updates
     end
 
     #dqstring
-    defp do_lex(%Context{src_rest: <<?", rest::binary>>} = context, result) do
+    defp do_lex(%Context{src_rest: <<?", rest::binary>>} = context) do
       # TODO: handle escaping and such
 
       charlist = String.to_charlist(rest)
@@ -155,29 +194,28 @@ defmodule Elil do
       {value, rest} = String.split_at(rest, dq_index) # TODO: refactor to parse_dqstring or something, like integer and identifier
       rest = chop_right(rest)
       context_updates = [src_rest: rest, chars_since_last_newline: context.chars_since_last_newline + String.length(value) + 2] # +2 for the surrounding quotes
-      continue_lex {Token.dqstring(), value}, context, context_updates, result
+      return_lex {Token.dqstring(), value}, context, context_updates
     end
 
     #identifier base case
-    defp do_lex(%Context{} = context, result) do
+    defp do_lex(%Context{} = context) do
       {value, rest} = parse_identifier(context)
       context_updates = [src_rest: rest, chars_since_last_newline: context.chars_since_last_newline + String.length(value)]
-      continue_lex {Token.ident(), value}, context, context_updates, result
+      return_lex {Token.ident(), value}, context, context_updates
     end
 
-    defp continue_lex(%Context{} = context, context_updates, result) when is_list(context_updates) do
-      do_lex struct!(context, context_updates), result
+    defp continue_lex(%Context{} = context, context_updates) when is_list(context_updates) do
+      do_lex struct!(context, context_updates)
     end
 
-    defp continue_lex({token, value}, %Context{} = context, context_updates, %LexedFile{file_path: file_path, lexed: result}) when is_list(context_updates) and is_list(result) and is_atom(token) do
+    defp return_lex({token, value}, %Context{} = context, context_updates) when is_list(context_updates) and is_atom(token) do
       lexer = %__MODULE__{
         token: token,
         value: value,
         row: Context.current_row(context),
         col: Context.current_column(context),
       }
-
-      do_lex struct!(context, context_updates), struct!(%LexedFile{}, [file_path: file_path, lexed: [lexer | result]])
+      {:ok, struct!(context, context_updates), lexer}
     end
 
     defp parse_identifier(context, result \\ [])
