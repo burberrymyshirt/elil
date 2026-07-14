@@ -3,15 +3,44 @@
 Code.require_file "./utils.exs"
 
 defmodule Elil do
-  alias Elil.Ast, as: ElilAst
   defmodule Logger do
+    def error_log_and_die(msg) do
+      error_log(msg)
+      exit {:shutdown, 1}
+    end
+
+    def error_log_and_die(file_path, msg) do
+      error_log(file_path, msg)
+      exit {:shutdown, 1}
+    end
+
+    def error_log_and_die(file_path, pos, msg) do
+      error_log(file_path, pos,  msg)
+      exit {:shutdown, 1}
+    end
+
+    # TODO: proper error logging with codes and ascii escape code colors and such
     def error_log(msg), do: IO.puts msg
+
+    def error_log(file_path, msg), do: error_log "#{file_path} #{msg}"
+
+    def error_log(file_path, {row, col},  msg), do: error_log "#{file_path}:#{row}:#{col} #{msg}"
   end
 
   defmodule Evaluator do
     alias Elil.Lexer, as: Lexer
+    alias Lexer.Token, as: Token
     require Utils
     import Utils
+    require Elil.Logger
+    import Elil.Logger
+
+    defmodule Scope do
+      defstruct [
+        tokens: [],
+        oparen_count: 0,
+      ]
+    end
 
     def eval(file, file_path) when is_pid(file) or is_atom(file) do
       # TODO: we just assume file is a valid atom or pid, so add validate_file or something
@@ -25,34 +54,55 @@ defmodule Elil do
       todo()
     end
 
-    defp do_eval(nil) do
+    defp do_eval(pid, scope \\ %Scope{})
+
+    defp do_eval(nil, _) do
       {:ok}
+      todo()
     end
 
-    defp do_eval(pid) when is_pid(pid) do
-      eof_token = Lexer.Token.eof()
+    defp do_eval(pid, %Scope{} = scope) when is_pid(pid) do
       case GenServer.call(pid, {:next_token}) do
-        %Lexer{token: ^eof_token} = result ->
+        %Lexer{token: :eof} = _result ->
           GenServer.stop(pid)
           do_eval nil
+        %Lexer{token: :cparen} = result ->
+          scope = struct! scope, [tokens: Enum.reverse([result | scope.tokens]), oparen_count: scope.oparen_count - 1]
+          dump(scope)
+
+          # TODO: handle scope being invalid using oparen_count.
+          #  if positive we continue, if negative we error out and if zero we eval_scope
+          #  NOTE: possibly make changes for nested scopes. I haven't quite decided on how to do that.
+
+          cond do
+            scope.oparen_count < 0 ->
+              error_log_and_die(GenServer.call(pid, {:file_path}), {result.row, result.col}, "unclosed scope identifier")
+            scope.oparen_count > 0 ->
+              # TODO: handle nested scopes. Right now it just continues with oparen_count = 1 and messes the rest of the parsing up
+              do_eval pid, scope
+            scope.oparen_count === 0 ->
+              eval_scope scope
+              do_eval pid, %Scope{}
+          end
+        %Lexer{token: :oparen} = result ->
+          do_eval pid, struct!(scope, [tokens: [result | scope.tokens], oparen_count: scope.oparen_count + 1])
         %Lexer{} = result ->
-          handle_eval(result)
-          do_eval pid
+          # TODO: maybe we can already start evaluating different things within a scope before completing it.
+          #  Just an idea, I have no clue what the implications are. But this is also my first time ¯\_(ツ)_/¯
+          do_eval pid, struct!(scope, [tokens: [result | scope.tokens]])
       end
     end
 
-    defp handle_eval(%Lexer{} = lexer) do
-      dump lexer
-    end
-  end
+    defp eval_scope(%Scope{tokens: scope}) when is_list(scope) and length(scope) > 0 do
+      dump "eval_scope unimplemented"
 
-  defmodule Ast do
-    require Utils
-    import Utils
-    alias Elil.Lexer.LexedFile
-
-    def build(%LexedFile{}) do
-      todo()
+      # todo("we just have to do much of the same here as in do_eval, but just without rebuilding any scope I guess. Match on tokens and do shit, then build the result")
+      # case scope[0].token do
+      #   :oparen ->
+      #     todo()
+      #   _ ->
+      #     todo()
+      # end
     end
   end
 
@@ -115,6 +165,11 @@ defmodule Elil do
     def handle_call({:next_token}, _from, %LexerState{context: context} = lexer_state) do
       {:ok, %Context{} = context, %Lexer{} = lexer} = do_lex(context)
       {:reply, lexer, struct!(lexer_state, [context: context])}
+    end
+
+    @impl true
+    def handle_call({:file_path}, _from, %LexerState{file_path: file_path} = lexer_state) do
+      {:reply, file_path, lexer_state}
     end
 
     @impl true
