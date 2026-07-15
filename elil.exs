@@ -76,7 +76,7 @@ defmodule Elil do
 
           cond do
             scope.oparen_count < 0 ->
-              error_log_and_die(GenServer.call(pid, {:file_path}), {result.row, result.col}, "unclosed scope identifier")
+              error_log_and_die(GenServer.call(pid, {:file_path}), {result.row, result.col}, "unclosed scope")
             scope.oparen_count > 0 ->
               # TODO: handle nested scopes. Right now it just continues with oparen_count = 1 and messes the rest of the parsing up
               do_eval pid, scope
