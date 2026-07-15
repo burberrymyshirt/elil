@@ -6,7 +6,20 @@ defmodule Utils do
     {func, arity} = caller.function
     line = caller.line
     quote do
-      "#{unquote(file)}:#{unquote line} #{unquote mod}.#{unquote func}/#{unquote arity} TODO: #{unquote(msg)}"
+      "#{unquote(file)}:#{unquote line}: #{unquote mod}.#{unquote func}/#{unquote arity} TODO: #{unquote(msg)}"
+        |> IO.puts
+      exit :shutdown
+    end
+  end
+
+  defmacro unreachable() do
+    caller = __CALLER__
+    file = caller.file
+    mod = caller.module
+    {func, arity} = caller.function
+    line = caller.line
+    quote do
+      "#{unquote(file)}:#{unquote line}: #{unquote mod}.#{unquote func}/#{unquote arity} UNREACHABLE}"
         |> IO.puts
       exit :shutdown
     end
