@@ -8,7 +8,7 @@ defmodule Utils do
     quote do
       "#{unquote(file)}:#{unquote line}: #{unquote mod}.#{unquote func}/#{unquote arity} TODO: #{unquote(msg)}"
         |> IO.puts
-      exit :shutdown
+      exit {:shutdown, 1}
     end
   end
 
@@ -21,7 +21,7 @@ defmodule Utils do
     quote do
       "#{unquote(file)}:#{unquote line}: #{unquote mod}.#{unquote func}/#{unquote arity} UNREACHABLE}"
         |> IO.puts
-      exit :shutdown
+      exit {:shutdown, 1}
     end
   end
 
