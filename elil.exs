@@ -54,11 +54,15 @@ defmodule Elil do
       todo()
     end
 
+    defp get_next_token(pid) when is_pid(pid) do
+      GenServer.call(pid, {:next_token})
+    end
+
     defp do_eval(pid, scope \\ %Scope{})
 
     defp do_eval(nil, _) do
       {:ok}
-      todo()
+      todo("decide what to do about the closed GenServer")
     end
 
     defp do_eval(pid, %Scope{} = scope) when is_pid(pid) do
