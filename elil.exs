@@ -29,7 +29,6 @@ defmodule Elil do
 
   defmodule Evaluator do
     alias Elil.Lexer, as: Lexer
-    alias Lexer.Token, as: Token
     require Utils
     import Utils
     require Elil.Logger
@@ -37,9 +36,15 @@ defmodule Elil do
 
     defmodule Scope do
       defstruct [
-        tokens: [],
-        oparen_count: 0,
+        :type,
+        :body,
+        params: [],
       ]
+
+      defmodule Type do
+        def expr(), do: :expr
+        def lit(), do: :lit
+      end
     end
 
     def eval(file, file_path) when is_pid(file) or is_atom(file) do
@@ -49,64 +54,85 @@ defmodule Elil do
 
     def eval(file, file_path) when is_binary(file) do
       {:ok, lexer_pid} = GenServer.start_link(Lexer, {file_path, file}, [hibernate_after: 100])
-      {:ok} = do_eval(lexer_pid)
+      {:ok} = parse(lexer_pid)
 
       todo()
     end
 
-    defp get_next_token(pid) when is_pid(pid) do
-      GenServer.call(pid, {:next_token})
-    end
-
-    defp do_eval(pid, scope \\ %Scope{})
-
-    defp do_eval(nil, _) do
-      {:ok}
+    defp stop_parse(pid, _result) do
+      GenServer.stop(pid)
       todo("decide what to do about the closed GenServer")
+      {:ok}
     end
 
-    defp do_eval(pid, %Scope{} = scope) when is_pid(pid) do
-      case GenServer.call(pid, {:next_token}) do
-        %Lexer{token: :eof} = _result ->
-          GenServer.stop(pid)
-          do_eval nil
-        %Lexer{token: :cparen} = result ->
-          scope = struct! scope, [tokens: Enum.reverse([result | scope.tokens]), oparen_count: scope.oparen_count - 1]
-          dump(scope)
+    defp parse(pid)
 
-          # TODO: handle scope being invalid using oparen_count.
-          #  if positive we continue, if negative we error out and if zero we eval_scope
-          #  NOTE: possibly make changes for nested scopes. I haven't quite decided on how to do that.
-
-          cond do
-            scope.oparen_count < 0 ->
-              error_log_and_die(GenServer.call(pid, {:file_path}), {result.row, result.col}, "unclosed scope")
-            scope.oparen_count > 0 ->
-              # TODO: handle nested scopes. Right now it just continues with oparen_count = 1 and messes the rest of the parsing up
-              do_eval pid, scope
-            scope.oparen_count === 0 ->
-              eval_scope scope
-              do_eval pid, %Scope{}
+    defp parse(pid) do
+      case Lexer.get_next_token(pid) do
+        %Lexer{token: :oparen} = lexer ->
+          case parse_scope(pid, lexer) do
+            {:ok, _scope} -> todo(":ok after parse_scope in parse")
+            {:error, _msg} -> todo(":error after parse_scope in parse")
           end
-        %Lexer{token: :oparen} = result ->
-          do_eval pid, struct!(scope, [tokens: [result | scope.tokens], oparen_count: scope.oparen_count + 1])
-        %Lexer{} = result ->
-          # TODO: maybe we can already start evaluating different things within a scope before completing it.
-          #  Just an idea, I have no clue what the implications are. But this is also my first time ¯\_(ツ)_/¯
-          do_eval pid, struct!(scope, [tokens: [result | scope.tokens]])
+        %Lexer{} = lexer ->
+          error_log_and_die(Lexer.get_file_path(pid), {lexer.row, lexer.col}, "unreachable")
       end
     end
 
-    defp eval_scope(%Scope{tokens: scope}) when is_list(scope) and length(scope) > 0 do
-      dump "eval_scope unimplemented"
+    defp parse_scope(pid, %Lexer{token: :oparen} = _lexer) do
+      scope = %Scope{}
+      dump("parse_scope/2")
+      _res = parse_scope(pid, Lexer.get_next_token(pid), scope) |> dump()
+      dump("parse_scope/2 after res")
+      _res
+    end
 
-      # todo("we just have to do much of the same here as in do_eval, but just without rebuilding any scope I guess. Match on tokens and do shit, then build the result")
-      # case scope[0].token do
-      #   :oparen ->
-      #     todo()
-      #   _ ->
-      #     todo()
-      # end
+    defp parse_scope(pid, %Lexer{row: row, col: col} = _lexer) do
+      # TODO: figure out if we just want to return {:error, msg} or this on failure.
+      error_log_and_die(Lexer.get_file_path(pid), {row, col}, "Expected open parentheses")
+    end
+
+    defp parse_scope(pid, %Lexer{token: :oparen} = current_token, %Scope{body: body, args: args} = scope) when not is_nil(body) do
+      struct!(scope, [type: :expr, args: [parse_scope(pid, current_token) | args]])
+    end
+
+    defp parse_scope(_pid, %Lexer{token: :cparen}, %Scope{} = scope) do
+      {:ok, scope}
+    end
+
+    defp parse_scope(pid, %Lexer{token: :ident, value: value}, %Scope{} = scope) do
+      dump("ident")
+      scope = struct!(scope, [type: Scope.Type.expr(), body: value])
+      dump(scope)
+      parse_scope(pid, Lexer.get_next_token(pid), scope)
+    end
+
+    # TODO: this guard should probably not be nessecery, as it is handled by the parse_lit pattern matching, but I am not too sure
+    defp parse_scope(pid, %Lexer{token: token, body: body, args: args} = current_token, %Scope{} = scope) when token in [:int, :dqstring] when not is_nil(body) do
+      scope = struct!(scope, [type: Scope.Type.lit(), args: [parse_lit(current_token) | args]])
+      parse_scope(pid, Lexer.get_next_token(pid), scope)
+    end
+
+    defp parse_scope(pid, %Lexer{token: token} = current_token, %Scope{} = scope) when token in [:int, :dqstring] do
+      scope = struct!(scope, [type: Scope.Type.lit(), body: parse_lit(current_token)])
+      parse_scope(pid, Lexer.get_next_token(pid), scope)
+    end
+
+    defp parse_scope(pid, %Lexer{token: token, row: row, col: col}, %Scope{} = _scope) do
+      todo("unexpected token \"#{token}\" given to parse_scope at: #{Lexer.get_file_path(pid)}:#{row}:#{col}")
+    end
+
+    defp parse_lit(%Lexer{token: token, value: value}) when token === :int do
+      value
+    end
+
+    defp parse_lit(%Lexer{token: token, value: value}) when token === :dqstring do
+      # TODO: string interpolation
+      value
+    end
+
+    defp parse_lit(%Lexer{token: token}) do
+      todo("parse_lit with token: #{Atom.to_string(token)}")
     end
   end
 
@@ -151,6 +177,14 @@ defmodule Elil do
       defstruct [:file_path, :context]
     end
 
+    def get_next_token(pid) when is_pid(pid) do
+      GenServer.call(pid, {:next_token}) |> dump()
+    end
+
+    def get_file_path(pid) when is_pid(pid) do
+      GenServer.call(pid, {:file_path})
+    end
+
     def start_link(default) when is_binary(default) do
       GenServer.start_link(__MODULE__, default)
     end
@@ -177,9 +211,7 @@ defmodule Elil do
     end
 
     @impl true
-    def handle_cast(request, state) do
-      dump request
-      dump state
+    def handle_cast(_request, state) do
       {:noreply, state}
     end
 
