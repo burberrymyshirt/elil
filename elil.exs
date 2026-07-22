@@ -37,7 +37,7 @@ defmodule Elil do
     defmodule Scope do
       defstruct [
         :type,
-        :body,
+        body: nil,
         params: [],
       ]
 
@@ -47,6 +47,8 @@ defmodule Elil do
       end
     end
 
+    defguard is_lit(v) when v in [:int, :dqstring]
+
     def eval(file, file_path) when is_pid(file) or is_atom(file) do
       # TODO: we just assume file is a valid atom or pid, so add validate_file or something
       IO.read(file, :eof) |> eval(file_path)
@@ -54,26 +56,30 @@ defmodule Elil do
 
     def eval(file, file_path) when is_binary(file) do
       {:ok, lexer_pid} = GenServer.start_link(Lexer, {file_path, file}, [hibernate_after: 100])
-      {:ok} = parse(lexer_pid)
+      {:ok, results} = parse(lexer_pid)
+      dump(results)
 
       todo()
     end
 
-    defp stop_parse(pid, _result) do
+    defp stop_parse(pid, result) do
       GenServer.stop(pid)
-      todo("decide what to do about the closed GenServer")
-      {:ok}
+      {:ok, result}
     end
 
-    defp parse(pid)
+    defp parse(pid, result \\ [])
 
-    defp parse(pid) do
+    defp parse(pid, result) when is_list(result) do
       case Lexer.get_next_token(pid) do
         %Lexer{token: :oparen} = lexer ->
           case parse_scope(pid, lexer) do
-            {:ok, _scope} -> todo(":ok after parse_scope in parse")
+            %Scope{} = scope ->
+              result = [scope | result]
+              parse(pid, result)
             {:error, _msg} -> todo(":error after parse_scope in parse")
           end
+        %Lexer{token: :eof} ->
+          stop_parse(pid, result)
         %Lexer{} = lexer ->
           error_log_and_die(Lexer.get_file_path(pid), {lexer.row, lexer.col}, "unreachable")
       end
@@ -81,10 +87,7 @@ defmodule Elil do
 
     defp parse_scope(pid, %Lexer{token: :oparen} = _lexer) do
       scope = %Scope{}
-      dump("parse_scope/2")
-      _res = parse_scope(pid, Lexer.get_next_token(pid), scope) |> dump()
-      dump("parse_scope/2 after res")
-      _res
+      parse_scope(pid, Lexer.get_next_token(pid), scope)
     end
 
     defp parse_scope(pid, %Lexer{row: row, col: col} = _lexer) do
@@ -92,34 +95,47 @@ defmodule Elil do
       error_log_and_die(Lexer.get_file_path(pid), {row, col}, "Expected open parentheses")
     end
 
-    defp parse_scope(pid, %Lexer{token: :oparen} = current_token, %Scope{body: body, args: args} = scope) when not is_nil(body) do
-      struct!(scope, [type: :expr, args: [parse_scope(pid, current_token) | args]])
+    defp parse_scope(pid, %Lexer{token: :oparen} = current_token, %Scope{body: body, params: args} = scope) when not is_nil(body) do
+      parse_scope(pid, Lexer.get_next_token(pid), struct!(scope, [type: :expr, args: [parse_scope(pid, current_token) | args]]))
+    end
+
+    defp parse_scope(pid, %Lexer{token: :oparen} = current_token, %Scope{params: args} = scope) do
+      # body = nil, so this can be used as an internal scope or whatever.
+      # TODO: Like if you want to do an inner scope to not leak variables or something.
+      parse_scope(pid, Lexer.get_next_token(pid), struct!(scope, [type: :expr, body: nil, params: [parse_scope(pid, current_token) | args]]))
     end
 
     defp parse_scope(_pid, %Lexer{token: :cparen}, %Scope{} = scope) do
-      {:ok, scope}
+      scope
     end
 
-    defp parse_scope(pid, %Lexer{token: :ident, value: value}, %Scope{} = scope) do
-      dump("ident")
+    defp parse_scope(pid, %Lexer{token: :ident, value: value}, %Scope{body: body, params: params} = scope) when not is_nil(body) do
+      scope = struct!(scope, [type: Scope.Type.expr(), params: [parse_params(pid) | params]])
+      parse_scope(pid, Lexer.get_next_token(pid), scope)
+    end
+
+    defp parse_scope(pid, %Lexer{token: :ident, value: value}, %Scope{body: body} = scope) do
       scope = struct!(scope, [type: Scope.Type.expr(), body: value])
-      dump(scope)
       parse_scope(pid, Lexer.get_next_token(pid), scope)
     end
 
     # TODO: this guard should probably not be nessecery, as it is handled by the parse_lit pattern matching, but I am not too sure
-    defp parse_scope(pid, %Lexer{token: token, body: body, args: args} = current_token, %Scope{} = scope) when token in [:int, :dqstring] when not is_nil(body) do
-      scope = struct!(scope, [type: Scope.Type.lit(), args: [parse_lit(current_token) | args]])
+    defp parse_scope(pid, %Lexer{token: token} = current_token, %Scope{body: body, params: params} = scope) when is_lit(token) and is_nil(body) do
+      struct!(scope, [type: Scope.Type.lit(), params: [parse_lit(current_token) | params]])
       parse_scope(pid, Lexer.get_next_token(pid), scope)
     end
 
-    defp parse_scope(pid, %Lexer{token: token} = current_token, %Scope{} = scope) when token in [:int, :dqstring] do
-      scope = struct!(scope, [type: Scope.Type.lit(), body: parse_lit(current_token)])
+    defp parse_scope(pid, %Lexer{token: token} = current_token, %Scope{body: body} = scope) when is_lit(token) and not is_nil(body) do
+      struct!(scope, [type: Scope.Type.lit(), body: parse_lit(current_token)])
       parse_scope(pid, Lexer.get_next_token(pid), scope)
+    end
+
+    defp parse_scope(_pid, %Lexer{token: :eof}, %Scope{}) do
+      {:error, "unexpected EOF"}
     end
 
     defp parse_scope(pid, %Lexer{token: token, row: row, col: col}, %Scope{} = _scope) do
-      todo("unexpected token \"#{token}\" given to parse_scope at: #{Lexer.get_file_path(pid)}:#{row}:#{col}")
+      todo("unexpected token \":#{token}\" given to parse_scope at: #{Lexer.get_file_path(pid)}:#{row}:#{col}")
     end
 
     defp parse_lit(%Lexer{token: token, value: value}) when token === :int do
@@ -133,6 +149,11 @@ defmodule Elil do
 
     defp parse_lit(%Lexer{token: token}) do
       todo("parse_lit with token: #{Atom.to_string(token)}")
+    end
+
+    defp parse_params(pid, result \\ []) do
+      todo("this should go though parse_scope, as a parameter to a function can also be an evaluated expr")
+        [parse_params(Lexer.get_next_token(pid), result) | result]
     end
   end
 
