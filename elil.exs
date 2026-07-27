@@ -51,6 +51,7 @@ defmodule Elil do
 
       defmodule Type do
         def expr(), do: :expr
+        def scope(), do: :scope
         def lit(), do: :lit
       end
     end
@@ -65,6 +66,7 @@ defmodule Elil do
     def eval(file, file_path) when is_binary(file) do
       {:ok, lexer_pid} = GenServer.start_link(Lexer, {file_path, file}, [hibernate_after: 100])
       {:ok, results} = parse(lexer_pid)
+      IO.write(:stdio, "results: ")
       dump(results);
 
       todo()
@@ -72,13 +74,14 @@ defmodule Elil do
 
     defp stop_parse(pid, result) do
       GenServer.stop(pid)
-      {:ok, result}
+      {:ok, Enum.reverse(result)}
     end
 
+    # TODO: This probably needs redoing. The API is very awkward to work with and it feels like error handling will be a bitch
     defp parse(pid, result \\ [])
 
     defp parse(pid, result) when is_list(result) do
-      case Lexer.get_next_token(pid) do
+      case Lexer.shift_token(pid) do
         %Lexer{token: :oparen} = lexer ->
           case parse_scope(pid, lexer) do
             %Node{} = node ->
@@ -95,48 +98,54 @@ defmodule Elil do
 
     defp parse_scope(pid, %Lexer{token: :oparen} = _lexer) do
       node = %Node{}
-      parse_scope(pid, Lexer.get_next_token(pid), node)
+      parse_scope(pid, Lexer.shift_token(pid), node)
     end
 
-    defp parse_scope(pid, %Lexer{row: row, col: col} = _lexer) do
+    defp parse_scope(pid, %Lexer{} = lexer) do
       # TODO: figure out if we just want to return {:error, msg} or this on failure.
-      error_log_and_die(Lexer.get_file_path(pid), {row, col}, "Expected open parentheses")
+      error_log_and_die(Lexer.get_file_path(pid), lexer, "Expected open parentheses")
     end
 
-    defp parse_scope(pid, %Lexer{token: :oparen} = current_token, %Node{body: body, params: args} = node) when not is_nil(body) do
-      parse_scope(pid, Lexer.get_next_token(pid), struct!(node, [type: :expr, params: [parse_scope(pid, current_token) | args]]))
+    defp parse_scope(pid, %Lexer{token: :oparen} = current_token, %Node{body: body} = node) when not is_nil(body) do
+      parse_scope(pid, Lexer.shift_token(pid), struct!(node, [type: Node.Type.expr(), params: [parse_scope(pid, current_token) | node.params]]))
     end
 
-    defp parse_scope(pid, %Lexer{token: :oparen} = current_token, %Node{params: args} = node) do
+    defp parse_scope(pid, %Lexer{token: :oparen} = current_token, %Node{type: nil, body: nil} = node) do
+      node = struct!(node, [type: Node.Type.scope(), body: parse_scope(pid, current_token)])
       # body = nil, so this can be used as an internal scope or whatever.
       # TODO: Like if you want to do an inner scope to not leak variables or something.
-      parse_scope(pid, Lexer.get_next_token(pid), struct!(node, [type: :expr, body: [parse_scope(pid, current_token) | args]]))
+      parse_scope(pid, Lexer.shift_token(pid), node)
     end
 
     defp parse_scope(_pid, %Lexer{token: :cparen}, %Node{} = node) do
+      # TODO: this becomes a way easier case to handle once we have the Lexer todo handled.
+      #  Right now it is a bit awkward to check if we have to continue parsing inside the current scope or return the node
+      #
+      #  Maybe we could just check if the current node is of type: :scope, and continue in that case, because an expr will only have a single scope
+      #  haven't really explored that idea, but it might be able to work.
       node
     end
 
     defp parse_scope(pid, %Lexer{token: :ident} = _lexer, %Node{body: body} = node) when not is_nil(body) do
       node = struct!(node, [type: Node.Type.expr(), params: parse_params(pid)])
-      l = Lexer.get_next_token(pid)
-      parse_scope(pid, l, node)
+      parse_scope(pid, Lexer.read_current_token(pid), node)
     end
 
-    defp parse_scope(pid, %Lexer{token: :ident, value: value}, %Node{} = node) do
+    defp parse_scope(pid, %Lexer{token: :ident, value: value}, %Node{body: nil} = node) do
       node = struct!(node, [type: Node.Type.expr(), body: value])
-      parse_scope(pid, Lexer.get_next_token(pid), node)
+      parse_scope(pid, Lexer.shift_token(pid), node)
     end
 
-    # TODO: this guard should probably not be nessecery, as it is handled by the parse_lit pattern matching, but I am not too sure
+    # TODO: the is_lit guard should probably not be nessecery, as it is handled by the parse_lit pattern matching, but I am not too sure
+    defp parse_scope(pid, %Lexer{token: token} = _current_token, %Node{body: body} = node) when is_lit(token) and not is_nil(body) do
+      node = struct!(node, [params: parse_params(pid)])
+      # parse_params consumes the final closed paren, hence the read rather than shift
+      parse_scope(pid, Lexer.read_current_token(pid), node)
+    end
+
     defp parse_scope(pid, %Lexer{token: token} = current_token, %Node{body: body, params: params} = node) when is_lit(token) and is_nil(body) do
-      struct!(node, [type: Node.Type.lit(), params: [parse_lit(current_token) | params]])
-      parse_scope(pid, Lexer.get_next_token(pid), node)
-    end
-
-    defp parse_scope(pid, %Lexer{token: token} = current_token, %Node{body: body} = node) when is_lit(token) and not is_nil(body) do
-      struct!(node, [type: Node.Type.lit(), params: parse_params(pid, current_token)])
-      parse_scope(pid, Lexer.get_next_token(pid), node)
+      node = struct!(node, [type: Node.Type.lit(), params: [parse_lit(current_token) | params]])
+      parse_scope(pid, Lexer.shift_token(pid), node)
     end
 
     defp parse_scope(_pid, %Lexer{token: :eof} = _lexer, %Node{}) do
@@ -157,32 +166,33 @@ defmodule Elil do
     end
 
     defp parse_lit(%Lexer{token: token}) do
-      todo("parse_lit with token: #{Atom.to_string(token)}")
+      todo("parse_lit with token: \":#{Atom.to_string(token)}\"")
     end
 
-    defp parse_params(pid, bootstrap_lexer \\ nil, result \\ []) when is_pid(pid) do
-      lexer = if is_nil(bootstrap_lexer) do
-        Lexer.get_next_token(pid)
-      else
-        bootstrap_lexer
-      end
-      dump(lexer)
+    defp parse_params(pid, result \\ [])
+
+    defp parse_params(pid, result) when is_pid(pid) and is_list(result) do
+      lexer = Lexer.read_current_token(pid)
       params = do_parse_params(lexer)
-      dump(params)
       case params do
         {:done} ->
           Enum.reverse(result)
         {:scope} ->
-          parse_params(pid, nil, [%Node{type: Node.Type.expr(), body: parse_scope(pid, lexer)} | result])
+          parse_params(pid, {:continue, [%Node{type: Node.Type.expr(), body: parse_scope(pid, lexer)} | result]})
         {:ok, %Node{} = node} ->
-          parse_params(pid, nil, [node | result])
+          parse_params(pid, {:continue, [node | result]})
         {:error, msg} ->
           error_log_and_die(Lexer.get_file_path(pid), params, msg)
       end
     end
 
+    defp parse_params(pid, {:continue, result}) when is_pid(pid) do
+      Lexer.shift_token pid
+      parse_params pid, result
+    end
+
     defp do_parse_params(%Lexer{token: token} = lexer) when is_lit(token) do
-      {:ok, %Node{type: :lit, body: parse_lit(lexer)}}
+      {:ok, %Node{type: Node.Type.lit(), body: parse_lit(lexer)}}
     end
 
     defp do_parse_params(%Lexer{token: :oparen} = _lexer) do
@@ -236,11 +246,11 @@ defmodule Elil do
     end
 
     defmodule LexerState do
-      defstruct [:file_path, :context, :current_token, :has_been_shifted]
+      defstruct [:file_path, :context, :current_token]
     end
 
-    def read_next_token(pid) when is_pid(pid) do
-      GenServer.call(pid, {:read_next_token})
+    def read_current_token(pid) when is_pid(pid) do
+      GenServer.call(pid, {:read_current_token})
     end
 
     def shift_token(pid) when is_pid(pid) do
@@ -262,23 +272,23 @@ defmodule Elil do
         total_newlines: 0,
         chars_since_last_newline: 0,
       }
-      {:ok, %LexerState{file_path: file_path, context: context, current_token: nil, has_been_shifted: false}}
+      {:ok, %LexerState{file_path: file_path, context: context, current_token: nil}}
     end
 
+    # TODO: all of this shifting and read_current_token is a bit limiting.
+    #  I would like a read-forward buffer that is saved in the state, so we
+    #  can read multiple tokens without shifting. I feel like that would make
+    #  the parser api much more usable, when creating "expect" functions or
+    #  patterns, to better handle errors. In this case, shift would shift from
+    #  the stack first, and then start pulling from the stream again once empty.
     @impl true
-    def handle_call({:read_next_token}, _from, %LexerState{} = lexer_state) do
-      token =
-        if (lexer_state.has_been_shifted) do
-          lexer_state.current_token
-        else
-          {lexer_state.current_token, true}
-        end
+    def handle_call({:shift_token}, _from, %LexerState{} = lexer_state) do
       {:ok, %Context{} = context, %Lexer{} = lexer} = do_lex(lexer_state.context)
       {:reply, lexer, struct!(lexer_state, [context: context, current_token: lexer])}
     end
 
     @impl true
-    def handle_call({:shift_token}, _from, %LexerState{} = lexer_state) do
+    def handle_call({:read_current_token}, _from, %LexerState{} = lexer_state) do
       {:reply, lexer_state.current_token, lexer_state}
     end
 
