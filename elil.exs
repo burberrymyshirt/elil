@@ -4,27 +4,35 @@ Code.require_file "./utils.exs"
 
 defmodule Elil do
   defmodule Logger do
-    def error_log_and_die(msg) do
+    def error_log_and_die(msg) when is_binary(msg) do
       error_log(msg)
       exit {:shutdown, 1}
     end
 
-    def error_log_and_die(file_path, msg) do
+    def error_log_and_die(file_path, msg) when is_binary(file_path) and is_binary(msg) do
       error_log(file_path, msg)
       exit {:shutdown, 1}
     end
 
-    def error_log_and_die(file_path, pos, msg) do
-      error_log(file_path, pos,  msg)
+    def error_log_and_die(file_path, %Elil.Lexer{} = lexer, msg) when is_binary(file_path) and is_binary(msg) do
+      error_log_and_die(file_path, {lexer.row, lexer.col}, msg)
+    end
+
+    def error_log_and_die(file_path, {row, col} = pos, msg) when is_integer(row) and is_integer(col) and is_binary(file_path) and is_binary(msg) do
+      error_log(file_path, pos, msg)
       exit {:shutdown, 1}
     end
 
     # TODO: proper error logging with codes and ascii escape code colors and such
-    def error_log(msg), do: IO.puts msg
+    def error_log(msg) when is_binary(msg), do: IO.puts msg
 
-    def error_log(file_path, msg), do: error_log "#{file_path} #{msg}"
+    def error_log(file_path, msg) when is_binary(file_path) and is_binary(msg) do
+      error_log "#{file_path} #{msg}"
+    end
 
-    def error_log(file_path, {row, col},  msg), do: error_log "#{file_path}:#{row}:#{col} #{msg}"
+    def error_log(file_path, {row, col},  msg) when is_binary(file_path) and is_integer(row) and is_integer(col) and is_binary(msg) do
+      error_log "#{file_path}:#{row}:#{col} #{msg}"
+    end
   end
 
   defmodule Evaluator do
@@ -34,7 +42,7 @@ defmodule Elil do
     require Elil.Logger
     import Elil.Logger
 
-    defmodule Scope do
+    defmodule Node do
       defstruct [
         :type,
         body: nil,
@@ -57,7 +65,7 @@ defmodule Elil do
     def eval(file, file_path) when is_binary(file) do
       {:ok, lexer_pid} = GenServer.start_link(Lexer, {file_path, file}, [hibernate_after: 100])
       {:ok, results} = parse(lexer_pid)
-      dump(results)
+      dump(results);
 
       todo()
     end
@@ -73,10 +81,10 @@ defmodule Elil do
       case Lexer.get_next_token(pid) do
         %Lexer{token: :oparen} = lexer ->
           case parse_scope(pid, lexer) do
-            %Scope{} = scope ->
-              result = [scope | result]
+            %Node{} = node ->
+              result = [node | result]
               parse(pid, result)
-            {:error, _msg} -> todo(":error after parse_scope in parse")
+            {:error, msg} -> error_log_and_die(Lexer.get_file_path(pid), lexer, msg)
           end
         %Lexer{token: :eof} ->
           stop_parse(pid, result)
@@ -86,8 +94,8 @@ defmodule Elil do
     end
 
     defp parse_scope(pid, %Lexer{token: :oparen} = _lexer) do
-      scope = %Scope{}
-      parse_scope(pid, Lexer.get_next_token(pid), scope)
+      node = %Node{}
+      parse_scope(pid, Lexer.get_next_token(pid), node)
     end
 
     defp parse_scope(pid, %Lexer{row: row, col: col} = _lexer) do
@@ -95,46 +103,47 @@ defmodule Elil do
       error_log_and_die(Lexer.get_file_path(pid), {row, col}, "Expected open parentheses")
     end
 
-    defp parse_scope(pid, %Lexer{token: :oparen} = current_token, %Scope{body: body, params: args} = scope) when not is_nil(body) do
-      parse_scope(pid, Lexer.get_next_token(pid), struct!(scope, [type: :expr, args: [parse_scope(pid, current_token) | args]]))
+    defp parse_scope(pid, %Lexer{token: :oparen} = current_token, %Node{body: body, params: args} = node) when not is_nil(body) do
+      parse_scope(pid, Lexer.get_next_token(pid), struct!(node, [type: :expr, params: [parse_scope(pid, current_token) | args]]))
     end
 
-    defp parse_scope(pid, %Lexer{token: :oparen} = current_token, %Scope{params: args} = scope) do
+    defp parse_scope(pid, %Lexer{token: :oparen} = current_token, %Node{params: args} = node) do
       # body = nil, so this can be used as an internal scope or whatever.
       # TODO: Like if you want to do an inner scope to not leak variables or something.
-      parse_scope(pid, Lexer.get_next_token(pid), struct!(scope, [type: :expr, body: nil, params: [parse_scope(pid, current_token) | args]]))
+      parse_scope(pid, Lexer.get_next_token(pid), struct!(node, [type: :expr, body: [parse_scope(pid, current_token) | args]]))
     end
 
-    defp parse_scope(_pid, %Lexer{token: :cparen}, %Scope{} = scope) do
-      scope
+    defp parse_scope(_pid, %Lexer{token: :cparen}, %Node{} = node) do
+      node
     end
 
-    defp parse_scope(pid, %Lexer{token: :ident, value: value}, %Scope{body: body, params: params} = scope) when not is_nil(body) do
-      scope = struct!(scope, [type: Scope.Type.expr(), params: [parse_params(pid) | params]])
-      parse_scope(pid, Lexer.get_next_token(pid), scope)
+    defp parse_scope(pid, %Lexer{token: :ident} = _lexer, %Node{body: body} = node) when not is_nil(body) do
+      node = struct!(node, [type: Node.Type.expr(), params: parse_params(pid)])
+      l = Lexer.get_next_token(pid)
+      parse_scope(pid, l, node)
     end
 
-    defp parse_scope(pid, %Lexer{token: :ident, value: value}, %Scope{body: body} = scope) do
-      scope = struct!(scope, [type: Scope.Type.expr(), body: value])
-      parse_scope(pid, Lexer.get_next_token(pid), scope)
+    defp parse_scope(pid, %Lexer{token: :ident, value: value}, %Node{} = node) do
+      node = struct!(node, [type: Node.Type.expr(), body: value])
+      parse_scope(pid, Lexer.get_next_token(pid), node)
     end
 
     # TODO: this guard should probably not be nessecery, as it is handled by the parse_lit pattern matching, but I am not too sure
-    defp parse_scope(pid, %Lexer{token: token} = current_token, %Scope{body: body, params: params} = scope) when is_lit(token) and is_nil(body) do
-      struct!(scope, [type: Scope.Type.lit(), params: [parse_lit(current_token) | params]])
-      parse_scope(pid, Lexer.get_next_token(pid), scope)
+    defp parse_scope(pid, %Lexer{token: token} = current_token, %Node{body: body, params: params} = node) when is_lit(token) and is_nil(body) do
+      struct!(node, [type: Node.Type.lit(), params: [parse_lit(current_token) | params]])
+      parse_scope(pid, Lexer.get_next_token(pid), node)
     end
 
-    defp parse_scope(pid, %Lexer{token: token} = current_token, %Scope{body: body} = scope) when is_lit(token) and not is_nil(body) do
-      struct!(scope, [type: Scope.Type.lit(), body: parse_lit(current_token)])
-      parse_scope(pid, Lexer.get_next_token(pid), scope)
+    defp parse_scope(pid, %Lexer{token: token} = current_token, %Node{body: body} = node) when is_lit(token) and not is_nil(body) do
+      struct!(node, [type: Node.Type.lit(), params: parse_params(pid, current_token)])
+      parse_scope(pid, Lexer.get_next_token(pid), node)
     end
 
-    defp parse_scope(_pid, %Lexer{token: :eof}, %Scope{}) do
+    defp parse_scope(_pid, %Lexer{token: :eof} = _lexer, %Node{}) do
       {:error, "unexpected EOF"}
     end
 
-    defp parse_scope(pid, %Lexer{token: token, row: row, col: col}, %Scope{} = _scope) do
+    defp parse_scope(pid, %Lexer{token: token, row: row, col: col}, %Node{} = _node) do
       todo("unexpected token \":#{token}\" given to parse_scope at: #{Lexer.get_file_path(pid)}:#{row}:#{col}")
     end
 
@@ -151,9 +160,41 @@ defmodule Elil do
       todo("parse_lit with token: #{Atom.to_string(token)}")
     end
 
-    defp parse_params(pid, result \\ []) do
-      todo("this should go though parse_scope, as a parameter to a function can also be an evaluated expr")
-        [parse_params(Lexer.get_next_token(pid), result) | result]
+    defp parse_params(pid, bootstrap_lexer \\ nil, result \\ []) when is_pid(pid) do
+      lexer = if is_nil(bootstrap_lexer) do
+        Lexer.get_next_token(pid)
+      else
+        bootstrap_lexer
+      end
+      dump(lexer)
+      params = do_parse_params(lexer)
+      dump(params)
+      case params do
+        {:done} ->
+          Enum.reverse(result)
+        {:scope} ->
+          parse_params(pid, nil, [%Node{type: Node.Type.expr(), body: parse_scope(pid, lexer)} | result])
+        {:ok, %Node{} = node} ->
+          parse_params(pid, nil, [node | result])
+        {:error, msg} ->
+          error_log_and_die(Lexer.get_file_path(pid), params, msg)
+      end
+    end
+
+    defp do_parse_params(%Lexer{token: token} = lexer) when is_lit(token) do
+      {:ok, %Node{type: :lit, body: parse_lit(lexer)}}
+    end
+
+    defp do_parse_params(%Lexer{token: :oparen} = _lexer) do
+      {:scope}
+    end
+
+    defp do_parse_params(%Lexer{token: :cparen} = _lexer) do
+      {:done}
+    end
+
+    defp do_parse_params(%Lexer{token: token}) when token === :eof do
+      {:error, "unexpected \":#{Atom.to_string(token)}\""}
     end
   end
 
@@ -195,11 +236,15 @@ defmodule Elil do
     end
 
     defmodule LexerState do
-      defstruct [:file_path, :context]
+      defstruct [:file_path, :context, :current_token, :has_been_shifted]
     end
 
-    def get_next_token(pid) when is_pid(pid) do
-      GenServer.call(pid, {:next_token}) |> dump()
+    def read_next_token(pid) when is_pid(pid) do
+      GenServer.call(pid, {:read_next_token})
+    end
+
+    def shift_token(pid) when is_pid(pid) do
+      GenServer.call(pid, {:shift_token})
     end
 
     def get_file_path(pid) when is_pid(pid) do
@@ -217,13 +262,24 @@ defmodule Elil do
         total_newlines: 0,
         chars_since_last_newline: 0,
       }
-      {:ok, %LexerState{file_path: file_path, context: context}}
+      {:ok, %LexerState{file_path: file_path, context: context, current_token: nil, has_been_shifted: false}}
     end
 
     @impl true
-    def handle_call({:next_token}, _from, %LexerState{context: context} = lexer_state) do
-      {:ok, %Context{} = context, %Lexer{} = lexer} = do_lex(context)
-      {:reply, lexer, struct!(lexer_state, [context: context])}
+    def handle_call({:read_next_token}, _from, %LexerState{} = lexer_state) do
+      token =
+        if (lexer_state.has_been_shifted) do
+          lexer_state.current_token
+        else
+          {lexer_state.current_token, true}
+        end
+      {:ok, %Context{} = context, %Lexer{} = lexer} = do_lex(lexer_state.context)
+      {:reply, lexer, struct!(lexer_state, [context: context, current_token: lexer])}
+    end
+
+    @impl true
+    def handle_call({:shift_token}, _from, %LexerState{} = lexer_state) do
+      {:reply, lexer_state.current_token, lexer_state}
     end
 
     @impl true
