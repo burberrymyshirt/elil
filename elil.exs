@@ -23,7 +23,7 @@ defmodule Elil do
       exit {:shutdown, 1}
     end
 
-    # TODO: proper error logging with codes and ascii escape code colors and such
+    # WANT: proper error logging with codes and ascii escape code colors and such
     def error_log(msg) when is_binary(msg), do: IO.puts msg
 
     def error_log(file_path, msg) when is_binary(file_path) and is_binary(msg) do
@@ -59,7 +59,7 @@ defmodule Elil do
     defguard is_lit(v) when v in [:int, :dqstring]
 
     def eval(file, file_path) when is_pid(file) or is_atom(file) do
-      # TODO: we just assume file is a valid atom or pid, so add validate_file or something
+      # WANT: we just assume file is a valid atom or pid, so add validate_file or something
       IO.read(file, :eof) |> eval(file_path)
     end
 
@@ -111,9 +111,14 @@ defmodule Elil do
     end
 
     defp parse_scope(pid, %Lexer{token: :oparen} = current_token, %Node{type: nil, body: nil} = node) do
+      # TODO: the comment below was made some time ago. I think this was meant
+      #  to have the scope statements as parameters instead of body. That would
+      #  also make handling of the ability to put multiple statements/expressions
+      #  inside the scope-body way easier, rather than having to juggle body
+      #  being either a %Node{} or a list of %Node{}, like this current implementation suggests.
       node = struct!(node, [type: Node.Type.scope(), body: parse_scope(pid, current_token)])
       # body = nil, so this can be used as an internal scope or whatever.
-      # TODO: Like if you want to do an inner scope to not leak variables or something.
+      # WANT: Like if you want to do an inner scope to not leak variables or something.
       parse_scope(pid, Lexer.shift_token(pid), node)
     end
 
@@ -136,7 +141,6 @@ defmodule Elil do
       parse_scope(pid, Lexer.shift_token(pid), node)
     end
 
-    # TODO: the is_lit guard should probably not be nessecery, as it is handled by the parse_lit pattern matching, but I am not too sure
     defp parse_scope(pid, %Lexer{token: token} = _current_token, %Node{body: body} = node) when is_lit(token) and not is_nil(body) do
       node = struct!(node, [params: parse_params(pid)])
       # parse_params consumes the final closed paren, hence the read rather than shift
@@ -161,7 +165,7 @@ defmodule Elil do
     end
 
     defp parse_lit(%Lexer{token: token, value: value}) when token === :dqstring do
-      # TODO: string interpolation
+      # WANT: string interpolation
       value
     end
 
@@ -354,7 +358,7 @@ defmodule Elil do
 
     #dqstring
     defp do_lex(%Context{src_rest: <<?", rest::binary>>} = context) do
-      # TODO: handle escaping and such
+      # WANT: handle escaping and such
 
       charlist = String.to_charlist(rest)
       nl_index = Enum.find_index(charlist, &(&1 === ?\n))
@@ -369,7 +373,7 @@ defmodule Elil do
         exit {:shutdown, 1}
       end
 
-      {value, rest} = String.split_at(rest, dq_index) # TODO: refactor to parse_dqstring or something, like integer and identifier
+      {value, rest} = String.split_at(rest, dq_index) # TODO: refactor line to parse_dqstring or something, like integer and identifier
       rest = chop_right(rest)
       context_updates = [src_rest: rest, chars_since_last_newline: context.chars_since_last_newline + String.length(value) + 2] # +2 for the surrounding quotes
       return_lex {Token.dqstring(), value}, context, context_updates
@@ -430,7 +434,7 @@ defmodule Elil do
     end
 
     defp chop_right(str) do
-      #handle escaped sequences. E.g. newlines written in src are \\n whereas actual newlines are \n
+      # WANT: handle escaped sequences. E.g. newlines written in src are \\n whereas actual newlines are \n
       if String.starts_with?(str, "\\") do
         {_, rest} = String.split_at(str, 2)
         rest
@@ -445,7 +449,7 @@ end
 {file_path, _argv_rest} = List.pop_at(System.argv, 0);
 cond do
   is_nil(file_path) ->
-    # TODO: implement repl
+    # WANT: implement repl
     Utils.print_usage "No file provided"
     exit {:shutdown, 1}
 
