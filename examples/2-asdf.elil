@@ -1,3 +1,1 @@
-(echo "Hello, World!\n")
-((echo ""))
-(    echo (add 34 35))
+((echo "asdf"))
