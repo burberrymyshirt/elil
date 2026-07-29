@@ -1,6 +1,8 @@
-defmodule Evaluator do
-  require Utils
-  import Utils
+defmodule Elil.Evaluator do
+  require Elil.Utils
+  import Elil.Utils
+  alias Elil.Parser, as: Parser
+  alias Elil.Lexer, as: Lexer
 
   def eval(file, file_path) when is_pid(file) or is_atom(file) do
     # WANT: we just assume file is a valid atom or pid, so add validate_file or something

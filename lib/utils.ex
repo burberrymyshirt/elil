@@ -1,4 +1,4 @@
-defmodule Utils do
+defmodule Elil.Utils do
   defmacro todo(msg \\ "Not implemented") do
     caller = __CALLER__
     file = caller.file

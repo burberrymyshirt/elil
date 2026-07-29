@@ -1,6 +1,7 @@
-defmodule Parser do
+defmodule Elil.Parser do
   import Elil.Logger
-  import Utils
+  import Elil.Utils
+  alias Elil.Lexer, as: Lexer
 
   defmodule Node do
     defstruct [

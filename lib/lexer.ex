@@ -1,6 +1,6 @@
-defmodule Lexer do
-  require Utils
-  import Utils
+defmodule Elil.Lexer do
+  require Elil.Utils
+  import Elil.Utils
   import Elil.Logger
   use GenServer
 
@@ -72,7 +72,7 @@ defmodule Lexer do
   #  the stack first, and then start pulling from the stream again once empty.
   @impl true
   def handle_call({:shift_token}, _from, %LexerState{} = lexer_state) do
-    {:ok, %Context{} = context, %Lexer{} = lexer} = do_lex(lexer_state.context)
+    {:ok, %Context{} = context, %Elil.Lexer{} = lexer} = do_lex(lexer_state.context)
     {:reply, lexer, struct!(lexer_state, [context: context, current_token: lexer])}
   end
 

@@ -9,7 +9,7 @@ defmodule Elil.Logger do
     exit {:shutdown, 1}
   end
 
-  def error_log_and_die(file_path, %Lexer{} = lexer, msg) when is_binary(file_path) and is_binary(msg) do
+  def error_log_and_die(file_path, %Elil.Lexer{} = lexer, msg) when is_binary(file_path) and is_binary(msg) do
     error_log_and_die(file_path, {lexer.row, lexer.col}, msg)
   end
 
