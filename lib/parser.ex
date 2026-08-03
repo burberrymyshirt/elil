@@ -57,14 +57,14 @@ defmodule Elil.Parser do
     error_log_and_die(Lexer.get_file_path(pid), lexer, "Expected open parentheses")
   end
 
-  defp parse_scope(pid, %Lexer{token: :oparen} = current_token, %Node{body: body} = node)
+  defp parse_scope(pid, %Lexer{token: :oparen} = _current_token, %Node{body: body} = node)
        when not is_nil(body) do
     parse_scope(
       pid,
       Lexer.shift_token(pid),
       struct!(node,
         type: Node.Type.expr(),
-        params: [parse_scope(pid, current_token) | node.params]
+        params: [parse_params(pid)]
       )
     )
   end
@@ -85,19 +85,20 @@ defmodule Elil.Parser do
     parse_scope(pid, Lexer.shift_token(pid), node)
   end
 
-  defp parse_scope(_pid, %Lexer{token: :cparen}, %Node{} = node) do
+  defp parse_scope(pid, %Lexer{token: :cparen}, %Node{} = node) do
     # TODO: this becomes a way easier case to handle once we have the Lexer todo handled.
     #  Right now it is a bit awkward to check if we have to continue parsing inside the current scope or return the node
     #
     #  Maybe we could just check if the current node is of type: :scope, and continue in that case, because an expr will only have a single scope
     #  haven't really explored that idea, but it might be able to work.
+    Lexer.shift_token(pid)
     node
   end
 
   defp parse_scope(pid, %Lexer{token: :ident} = _lexer, %Node{body: body} = node)
        when not is_nil(body) do
     node = struct!(node, type: Node.Type.expr(), params: parse_params(pid))
-    parse_scope(pid, Lexer.read_current_token(pid), node)
+    parse_scope(pid, Lexer.get_current_token(pid), node)
   end
 
   defp parse_scope(pid, %Lexer{token: :ident, value: value}, %Node{body: nil} = node) do
@@ -109,16 +110,16 @@ defmodule Elil.Parser do
        when is_lit(token) and not is_nil(body) do
     node = struct!(node, params: parse_params(pid))
     # parse_params consumes the final closed paren, hence the read rather than shift
-    parse_scope(pid, Lexer.read_current_token(pid), node)
+    parse_scope(pid, Lexer.get_current_token(pid), node)
   end
 
   defp parse_scope(
          pid,
-         %Lexer{token: token} = current_token,
-         %Node{body: body, params: params} = node
+         %Lexer{token: token} = _current_token,
+         %Node{body: body} = node
        )
        when is_lit(token) and is_nil(body) do
-    node = struct!(node, type: Node.Type.lit(), params: [parse_lit(current_token) | params])
+    node = struct!(node, type: Node.Type.lit(), params: parse_params(pid))
     parse_scope(pid, Lexer.shift_token(pid), node)
   end
 
@@ -144,21 +145,29 @@ defmodule Elil.Parser do
   defp parse_params(pid, result \\ [])
 
   defp parse_params(pid, result) when is_pid(pid) and is_list(result) do
-    lexer = Lexer.read_current_token(pid)
+    lexer = Lexer.get_current_token(pid)
     params = do_parse_params(lexer)
+
+    dump(params)
 
     case params do
       {:done} ->
         Enum.reverse(result)
 
       {:scope} ->
+        parsed_scope = parse_scope(pid, lexer)
+
+        todo(
+          "the parse_scope above consumes the cparen meant to close this param, so I don't know how to handle that."
+        )
+
         parse_params(
           pid,
-          {:continue, [%Node{type: Node.Type.expr(), body: parse_scope(pid, lexer)} | result]}
+          {:continue, [%Node{type: Node.Type.expr(), body: parsed_scope} | result]}
         )
 
       {:ok, %Node{} = node} ->
-        parse_params(pid, {:continue, [node | result]})
+        parse_params(pid, {:continue_shift, [node | result]})
 
       {:error, msg} ->
         error_log_and_die(Lexer.get_file_path(pid), lexer, msg)
@@ -166,6 +175,10 @@ defmodule Elil.Parser do
   end
 
   defp parse_params(pid, {:continue, result}) when is_pid(pid) do
+    parse_params(pid, result)
+  end
+
+  defp parse_params(pid, {:continue_shift, result}) when is_pid(pid) do
     Lexer.shift_token(pid)
     parse_params(pid, result)
   end
@@ -184,5 +197,182 @@ defmodule Elil.Parser do
 
   defp do_parse_params(%Lexer{token: token}) when token === :eof do
     {:error, "unexpected \":#{Atom.to_string(token)}\""}
+  end
+end
+
+defmodule Elil.Parser2 do
+  import Elil.Logger
+  import Elil.Utils
+  alias Elil.Lexer, as: Lexer
+
+  defmodule Node do
+    defstruct [
+      :type,
+      body: nil,
+      params: []
+    ]
+
+    defmodule Type do
+      def root(), do: :root
+      def expr(), do: :expr
+      def scope(), do: :scope
+      def lit(), do: :lit
+    end
+  end
+
+  defmodule Context do
+    defstruct [
+      :state,
+      nested_level: 0,
+      current_node: nil
+    ]
+  end
+
+  defguard is_lit(v) when v in [:int, :dqstring]
+
+  def parse(lexer_pid) when is_pid(lexer_pid) do
+    do_parse(lexer_pid)
+  end
+
+  defp do_parse(pid, state \\ :start, result \\ [])
+
+  defp do_parse(pid, :start, result) do
+    # bootstrapping the lexer
+    Lexer.shift_token(pid)
+    do_parse(pid, struct!(Context, state: :continue), result)
+  end
+
+  defp do_parse(pid, %Context{} = context, result) do
+    case context.state do
+      :continue ->
+        case Lexer.get_current_token(pid) do
+          %Lexer{token: :eof} ->
+            stop_parse(result)
+
+          %Lexer{token: :oparen} ->
+            node = struct!(%Node{}, type: Node.Type.expr())
+            Lexer.shift_token(pid)
+
+            context =
+              struct!(context,
+                state: :parse_body,
+                current_node: node,
+                nested_level: context.nested_level + 1
+              )
+
+            do_parse(pid, context, result)
+        end
+
+      :parse_body ->
+        case context.current_node do
+          %Node{type: :expr, body: nil} = node ->
+            case Lexer.get_current_token(pid) do
+              %Lexer{token: :cparen} when context.nested_level === 1 ->
+                Lexer.shift_token(pid)
+
+                context =
+                  struct!(context,
+                    state: :continue,
+                    nested_level: context.nested_level - 1,
+                    current_node: nil
+                  )
+
+                do_parse(pid, context, [node | result])
+
+              %Lexer{token: :ident} = lexer ->
+                node = struct!(node, body: lexer.value)
+                context = struct!(context, current_node: node, state: :parse_params)
+                Lexer.shift_token(pid)
+                do_parse(pid, context, result)
+
+              %Lexer{token: :oparen} = lexer ->
+                new_context =
+                  struct!(Context,
+                    state: :continue,
+                    current_node: %Node{type: Node.Type.expr()},
+                    nested_level: context.nested_level + 1
+                  )
+
+                # I really don't know how to do about this. Hack the scopes to
+                # collapse nested results? Read forward in the Lexer, and just
+                # handle it inline rather than a recursive call to do_parse/3?
+                #
+                # The annoying thing is that we cannot parse references to struct
+                # instances through the functions, so we have to handle this via a return type.
+                todo("figure out how to handle nested scopes in this fuckass machine.")
+                do_parse(pid, new_context, result)
+                node = struct!(node, body: lexer.value)
+                context = struct!(context, current_node: node, state: :parse_params)
+                Lexer.shift_token(pid)
+                do_parse(pid, context, result)
+
+              %Lexer{} = lexer ->
+                error_log_and_die(
+                  Lexer.get_file_path(pid),
+                  lexer,
+                  "unexpected token: \":#{Atom.to_string(lexer.token)}\" found, expected \":ident\""
+                )
+            end
+        end
+
+      :parse_params ->
+        case context.current_node do
+          %Node{body: body} = node when not is_nil(body) ->
+            case Lexer.get_current_token(pid) do
+              %Lexer{token: :cparen} when context.nested_level === 1 ->
+                Lexer.shift_token(pid)
+
+                context =
+                  struct!(context,
+                    state: :continue,
+                    nested_level: context.nested_level - 1,
+                    current_node: nil
+                  )
+
+                do_parse(pid, context, [node | result])
+
+              %Lexer{token: token} = lexer when is_lit(token) ->
+                new_node = %Node{type: Node.Type.lit(), body: lexer.value}
+                node = struct!(node, params: [new_node | node.params])
+                context = struct!(context, current_node: node, state: :parse_params)
+                Lexer.shift_token(pid)
+                do_parse(pid, context, result)
+
+              %Lexer{token: :oparen} ->
+                Lexer.shift_token(pid)
+
+                context =
+                  struct!(context,
+                    nested_level: context.nested_level - 1,
+                    current_node: todo(),
+                    state: :parse_body
+                  )
+
+                do_parse(pid, context, result)
+
+              # new_node = struct!(Node, type: Node.Type.expr(), body: parse)
+
+              %Lexer{} = lexer ->
+                error_log_and_die(
+                  Lexer.get_file_path(pid),
+                  lexer,
+                  "unexpected token: \":#{Atom.to_string(lexer.token)}\" found, expected one of \"[:dqstring, :int]\""
+                )
+            end
+        end
+
+      {:append_result, %Node{} = node} ->
+        Lexer.shift_token(pid)
+        do_parse(pid, :continue, [node | result])
+
+      v ->
+        dump(v)
+        error_log_and_die("din mor er grim")
+        todo("parse_node")
+    end
+  end
+
+  defp stop_parse(result) do
+    {:ok, struct!(%Node{type: Node.Type.root(), params: Enum.reverse(result)})}
   end
 end

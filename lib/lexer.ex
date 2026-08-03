@@ -38,12 +38,16 @@ defmodule Elil.Lexer do
     defstruct [:file_path, :context, :current_token]
   end
 
-  def read_current_token(pid) when is_pid(pid) do
-    GenServer.call(pid, {:read_current_token})
+  def get_current_token(pid) when is_pid(pid) do
+    GenServer.call(pid, {:get_current_token})
   end
 
   def shift_token(pid) when is_pid(pid) do
-    GenServer.call(pid, {:shift_token})
+    GenServer.call(pid, {:shift_token, 1})
+  end
+
+  def shift_token(pid, amount) when is_pid(pid) and is_integer(amount) do
+    GenServer.call(pid, {:shift_token, amount})
   end
 
   def get_file_path(pid) when is_pid(pid) do
@@ -65,20 +69,21 @@ defmodule Elil.Lexer do
     {:ok, %LexerState{file_path: file_path, context: context, current_token: nil}}
   end
 
-  # TODO: all of this shifting and read_current_token is a bit limiting.
+  # TODO: all of this shifting and get_current_token is a bit limiting.
   #  I would like a read-forward buffer that is saved in the state, so we
   #  can read multiple tokens without shifting. I feel like that would make
   #  the parser api much more usable, when creating "expect" functions or
   #  patterns, to better handle errors. In this case, shift would shift from
   #  the stack first, and then start pulling from the stream again once empty.
   @impl true
-  def handle_call({:shift_token}, _from, %LexerState{} = lexer_state) do
+  def handle_call({:shift_token, amount}, _from, %LexerState{} = lexer_state)
+      when is_integer(amount) do
     {:ok, %Context{} = context, %Elil.Lexer{} = lexer} = do_lex(lexer_state.context)
     {:reply, lexer, struct!(lexer_state, context: context, current_token: lexer)}
   end
 
   @impl true
-  def handle_call({:read_current_token}, _from, %LexerState{} = lexer_state) do
+  def handle_call({:get_current_token}, _from, %LexerState{} = lexer_state) do
     {:reply, lexer_state.current_token, lexer_state}
   end
 
