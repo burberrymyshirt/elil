@@ -10,10 +10,10 @@ defmodule Elil.Evaluator do
   end
 
   def eval(file, file_path) when is_binary(file) do
-    {:ok, lexer_pid} = GenServer.start_link(Lexer, {file_path, file}, [hibernate_after: 100])
+    {:ok, lexer_pid} = GenServer.start_link(Lexer, {file_path, file}, hibernate_after: 100)
     {:ok, results} = Parser.parse(lexer_pid)
     IO.write(:stdio, "results: ")
-    dump(results);
+    dump(results)
 
     todo()
   end
