@@ -307,6 +307,7 @@ defmodule Elil.Parser2 do
                       #   struct!(node, type: Node.Type.expr(), params: [new_node| node.params])
                       # _ -> unreachable()
                   end
+
                 context = struct!(context, state: :parse_body, current_node: node)
                 do_parse(pid, context, result)
 
@@ -349,10 +350,18 @@ defmodule Elil.Parser2 do
 
               %Lexer{token: :oparen} ->
                 Lexer.shift_token(pid)
-                new_context = struct!(Context, current_node: %Node{type: Node.Type.expr()}, nested_level: context.nested_level + 1, state: :parse_body)
+
+                new_context =
+                  struct!(Context,
+                    current_node: %Node{type: Node.Type.expr()},
+                    nested_level: context.nested_level + 1,
+                    state: :parse_body
+                  )
+
                 {:node_parsed, new_node} = do_parse(pid, new_context, result)
 
                 node = struct!(node, params: [new_node | node.params])
+
                 context =
                   struct!(context,
                     current_node: node,
