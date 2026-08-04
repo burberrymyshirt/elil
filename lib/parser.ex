@@ -265,7 +265,7 @@ defmodule Elil.Parser2 do
 
       :parse_body ->
         case context.current_node do
-          %Node{type: :expr, body: nil} = node ->
+          %Node{type: type, body: nil} = node when type in [:expr, :scope] ->
             case Lexer.get_current_token(pid) do
               %Lexer{token: :cparen} when context.nested_level === 1 ->
                 Lexer.shift_token(pid)
@@ -285,25 +285,29 @@ defmodule Elil.Parser2 do
                 Lexer.shift_token(pid)
                 do_parse(pid, context, result)
 
-              %Lexer{token: :oparen} = lexer ->
+              %Lexer{token: :oparen} ->
                 new_context =
                   struct!(Context,
-                    state: :continue,
+                    state: :parse_body,
                     current_node: %Node{type: Node.Type.expr()},
                     nested_level: context.nested_level + 1
                   )
 
-                # I really don't know how to do about this. Hack the scopes to
-                # collapse nested results? Read forward in the Lexer, and just
-                # handle it inline rather than a recursive call to do_parse/3?
-                #
-                # The annoying thing is that we cannot parse references to struct
-                # instances through the functions, so we have to handle this via a return type.
-                todo("figure out how to handle nested scopes in this fuckass machine.")
-                do_parse(pid, new_context, result)
-                node = struct!(node, body: lexer.value)
-                context = struct!(context, current_node: node, state: :parse_params)
                 Lexer.shift_token(pid)
+
+                {:node_parsed, %Node{} = new_node} = do_parse(pid, new_context, result)
+
+                node =
+                  case node do
+                    %Node{body: nil} = node ->
+                      struct!(node, type: Node.Type.scope(), params: [new_node | node.params])
+
+                      ### Compiler says the below is never matched, but keep it commented out for now, cause I feel like it might be used in the future
+                      # %Node{} = node ->
+                      #   struct!(node, type: Node.Type.expr(), params: [new_node| node.params])
+                      # _ -> unreachable()
+                  end
+                context = struct!(context, state: :parse_body, current_node: node)
                 do_parse(pid, context, result)
 
               %Lexer{} = lexer ->
@@ -331,6 +335,11 @@ defmodule Elil.Parser2 do
 
                 do_parse(pid, context, [node | result])
 
+              %Lexer{token: :cparen} when context.nested_level > 1 ->
+                Lexer.shift_token(pid)
+                node = struct!(node, params: Enum.reverse(node.params))
+                {:node_parsed, node}
+
               %Lexer{token: token} = lexer when is_lit(token) ->
                 new_node = %Node{type: Node.Type.lit(), body: lexer.value}
                 node = struct!(node, params: [new_node | node.params])
@@ -340,17 +349,17 @@ defmodule Elil.Parser2 do
 
               %Lexer{token: :oparen} ->
                 Lexer.shift_token(pid)
+                new_context = struct!(Context, current_node: %Node{type: Node.Type.expr()}, nested_level: context.nested_level + 1, state: :parse_body)
+                {:node_parsed, new_node} = do_parse(pid, new_context, result)
 
+                node = struct!(node, params: [new_node | node.params])
                 context =
                   struct!(context,
-                    nested_level: context.nested_level - 1,
-                    current_node: todo(),
-                    state: :parse_body
+                    current_node: node,
+                    state: :parse_params
                   )
 
                 do_parse(pid, context, result)
-
-              # new_node = struct!(Node, type: Node.Type.expr(), body: parse)
 
               %Lexer{} = lexer ->
                 error_log_and_die(
