@@ -1,6 +1,6 @@
 # Elil
 
-**TODO: Add description**
+**TODO: add description**
 
 ## Installation
 
