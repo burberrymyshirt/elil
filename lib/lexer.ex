@@ -42,6 +42,14 @@ defmodule Elil.Lexer do
     GenServer.call(pid, {:get_current_token})
   end
 
+  def current(pid) when is_pid(pid) do
+    get_current_token(pid)
+  end
+
+  def shift(pid, amount \\ 1) when is_pid(pid) do
+    shift_token(pid, amount)
+  end
+
   def shift_token(pid) when is_pid(pid) do
     GenServer.call(pid, {:shift_token, 1})
   end
