@@ -1,0 +1,6 @@
+(echo "hello, world\n")
+
+(
+    (echo "asdf: \n")
+    (let "asdf" (add 34 35))
+    (echo "asdf"))
