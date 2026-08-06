@@ -13,11 +13,12 @@ defmodule Elil.Lexer do
   ]
 
   defmodule Context do
-    @enforce_keys [:src_rest, :total_newlines, :chars_since_last_newline]
+    @enforce_keys [:src_rest, :total_newlines, :chars_since_last_newline, :skip_comments]
     defstruct [
       :src_rest,
       :total_newlines,
-      :chars_since_last_newline
+      :chars_since_last_newline,
+      :skip_comments,
     ]
 
     def current_column(%Context{chars_since_last_newline: col}), do: col + 1
@@ -32,6 +33,7 @@ defmodule Elil.Lexer do
     def ident(), do: :ident
     def dqstring(), do: :dqstring
     def int(), do: :int
+    def cmt(), do: :cmt
   end
 
   defmodule LexerState do
@@ -66,12 +68,17 @@ defmodule Elil.Lexer do
     GenServer.start_link(__MODULE__, default)
   end
 
-  @impl true
   def init({file_path, contents}) when is_binary(file_path) and is_binary(contents) do
+    init({file_path, contents, true}) # Default to skipping comments = true
+  end
+
+  @impl true
+  def init({file_path, contents, skip_comments}) when is_binary(file_path) and is_binary(contents) do
     context = %Context{
       src_rest: contents,
       total_newlines: 0,
-      chars_since_last_newline: 0
+      chars_since_last_newline: 0,
+      skip_comments: skip_comments,
     }
 
     {:ok, %LexerState{file_path: file_path, context: context, current_token: nil}}
@@ -176,6 +183,22 @@ defmodule Elil.Lexer do
     return_lex({Token.int(), value}, context, context_updates)
   end
 
+  # cmt
+  defp do_lex(%Context{src_rest: <<?;, rest::binary>>} = context) do
+    {value, rest} = parse_comment(rest)
+
+    context_updates = [
+      src_rest: rest,
+      chars_since_last_newline: context.chars_since_last_newline + String.length(value) + 1 # one more for the semi-colon
+    ]
+
+    if (context.skip_comments) do
+      continue_lex(context, context_updates)
+    else
+      return_lex({Token.cmt(), value}, context, context_updates)
+    end
+  end
+
   # dqstring
   defp do_lex(%Context{src_rest: <<?", rest::binary>>} = context) do
     # WANT: handle escaping and such
@@ -210,6 +233,7 @@ defmodule Elil.Lexer do
 
   # identifier base case
   defp do_lex(%Context{} = context) do
+    dump(context.src_rest)
     {value, rest} = parse_identifier(context)
 
     context_updates = [
@@ -263,6 +287,28 @@ defmodule Elil.Lexer do
   end
 
   defp parse_integer(rest, result) do
+    result
+    |> Enum.reverse()
+    |> List.to_string()
+    |> then(&{&1, rest})
+  end
+
+  defp parse_comment(str, result \\ []) do
+    todo("this is eating the final \n and adding it to the comment")
+    todo("messes with the whitespace parser, and results in an :ident type with an empty value")
+    case str do
+      <<?\n, rest::binary>> ->
+        return_comment([?\n | rest], result)
+
+      <<?\r, ?\n, rest::binary>> ->
+        return_comment([?\r | [?\n | rest]], result)
+
+      <<c, rest::binary>> ->
+        parse_comment(rest, [c | result])
+    end
+  end
+
+  defp return_comment(rest, result) do
     result
     |> Enum.reverse()
     |> List.to_string()

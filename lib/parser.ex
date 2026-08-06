@@ -1,6 +1,4 @@
 defmodule Elil.Parser do
-  import Elil.Logger
-  import Elil.Utils
   alias Elil.Lexer, as: Lexer
 
   defmodule Node do
