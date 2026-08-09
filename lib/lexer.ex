@@ -18,7 +18,7 @@ defmodule Elil.Lexer do
       :src_rest,
       :total_newlines,
       :chars_since_last_newline,
-      :skip_comments,
+      :skip_comments
     ]
 
     def current_column(%Context{chars_since_last_newline: col}), do: col + 1
@@ -69,16 +69,18 @@ defmodule Elil.Lexer do
   end
 
   def init({file_path, contents}) when is_binary(file_path) and is_binary(contents) do
-    init({file_path, contents, true}) # Default to skipping comments = true
+    # Default to skipping comments = true
+    init({file_path, contents, true})
   end
 
   @impl true
-  def init({file_path, contents, skip_comments}) when is_binary(file_path) and is_binary(contents) do
+  def init({file_path, contents, skip_comments})
+      when is_binary(file_path) and is_binary(contents) do
     context = %Context{
       src_rest: contents,
       total_newlines: 0,
       chars_since_last_newline: 0,
-      skip_comments: skip_comments,
+      skip_comments: skip_comments
     }
 
     {:ok, %LexerState{file_path: file_path, context: context, current_token: nil}}
@@ -111,6 +113,9 @@ defmodule Elil.Lexer do
   def handle_cast(_request, state) do
     {:noreply, state}
   end
+
+  defguardp valid_identifier_char(char)
+            when char in [?A..?z, ?_, ?-, ??, ?æ, ?ø, ?å, ?Æ, ?Ø, ?Å]
 
   defp do_lex(%Context{src_rest: rest} = context) when rest === "" do
     value = ""
@@ -189,10 +194,11 @@ defmodule Elil.Lexer do
 
     context_updates = [
       src_rest: rest,
-      chars_since_last_newline: context.chars_since_last_newline + String.length(value) + 1 # one more for the semi-colon
+      # one more for the semi-colon
+      chars_since_last_newline: context.chars_since_last_newline + String.length(value) + 1
     ]
 
-    if (context.skip_comments) do
+    if context.skip_comments do
       continue_lex(context, context_updates)
     else
       return_lex({Token.cmt(), value}, context, context_updates)
@@ -264,10 +270,7 @@ defmodule Elil.Lexer do
 
   defp parse_identifier(%Context{src_rest: rest}, result), do: parse_identifier(rest, result)
 
-  defp parse_identifier(<<char, rest::binary>>, result)
-       when char in ?A..?z
-       when char in [?_, ?-, ??]
-       when char in [?æ, ?ø, ?å, ?Æ, ?Ø, ?Å] do
+  defp parse_identifier(<<char, rest::binary>>, result) when valid_identifier_char(char) do
     parse_identifier(rest, [char | result])
   end
 
