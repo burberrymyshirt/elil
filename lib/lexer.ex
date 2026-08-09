@@ -115,7 +115,8 @@ defmodule Elil.Lexer do
   end
 
   defguardp valid_identifier_char(char)
-            when char in [?A..?z, ?_, ?-, ??, ?æ, ?ø, ?å, ?Æ, ?Ø, ?Å]
+            when char in ?A..?z
+            or char in [?_, ?-, ??, ?æ, ?ø, ?å, ?Æ, ?Ø, ?Å]
 
   defp do_lex(%Context{src_rest: rest} = context) when rest === "" do
     value = ""
@@ -239,7 +240,6 @@ defmodule Elil.Lexer do
 
   # identifier base case
   defp do_lex(%Context{} = context) do
-    dump(context.src_rest)
     {value, rest} = parse_identifier(context)
 
     context_updates = [
@@ -297,14 +297,12 @@ defmodule Elil.Lexer do
   end
 
   defp parse_comment(str, result \\ []) do
-    todo("this is eating the final \n and adding it to the comment")
-    todo("messes with the whitespace parser, and results in an :ident type with an empty value")
     case str do
       <<?\n, rest::binary>> ->
-        return_comment([?\n | rest], result)
+        return_comment("\n" <> rest, result)
 
       <<?\r, ?\n, rest::binary>> ->
-        return_comment([?\r | [?\n | rest]], result)
+        return_comment("\r\n" <> rest, result)
 
       <<c, rest::binary>> ->
         parse_comment(rest, [c | result])
