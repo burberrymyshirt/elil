@@ -40,23 +40,37 @@ defmodule Elil.Lexer do
     defstruct [:file_path, :context, :current_token]
   end
 
-  def get_current_token(pid) when is_pid(pid) do
-    GenServer.call(pid, {:get_current_token})
+  def lex_entire_file(file) do
+    case File.exists?(file) do
+      true ->
+        {:ok, fd} = File.open(file)
+        contents = IO.read(fd, :eof)
+        lex_entire_file(contents, file)
+      false ->
+        dump(file)
+        lex_entire_file(file, "eval()")
+    end
+  end
+
+  def lex_entire_file(file, file_path) do
+    {:ok, pid} = GenServer.start_link(__MODULE__, {file_path, file}, hibernate_after: 100)
+    list = do_lex_entire_file(pid)
+    GenServer.stop(pid)
+    list
+  end
+
+  defp do_lex_entire_file(pid, result \\ []) when is_pid(pid) do
+    case shift(pid) do
+      %__MODULE__{token: :eof} -> Enum.reverse(result)
+      %__MODULE__{} = l -> do_lex_entire_file(pid, [l, result])
+    end
   end
 
   def current(pid) when is_pid(pid) do
-    get_current_token(pid)
+    GenServer.call(pid, {:get_current_token})
   end
 
   def shift(pid, amount \\ 1) when is_pid(pid) do
-    shift_token(pid, amount)
-  end
-
-  def shift_token(pid) when is_pid(pid) do
-    GenServer.call(pid, {:shift_token, 1})
-  end
-
-  def shift_token(pid, amount) when is_pid(pid) and is_integer(amount) do
     GenServer.call(pid, {:shift_token, amount})
   end
 
@@ -105,8 +119,8 @@ defmodule Elil.Lexer do
   end
 
   @impl true
-  def handle_call({:file_path}, _from, %LexerState{file_path: file_path} = lexer_state) do
-    {:reply, file_path, lexer_state}
+  def handle_call({:file_path}, _from, %LexerState{} = lexer_state) do
+    {:reply, lexer_state.file_path, lexer_state}
   end
 
   @impl true
