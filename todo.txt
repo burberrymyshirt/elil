@@ -1,18 +1,28 @@
 Todos and wants
 
 Most pressing
-[] dqstring parsing and a string literal. Don't know if I want just one type of string, which does everything though
-[] adding more functions. "add" is the only one missing from the examples
- - [] type juggling to print whatever values are there. Possibly some format print
-[] let bindings
+[] dqstring parsing and a string literal. Don't know if I want just one type of string, which does everything though.
+[] adding more functions. "add" is the only one missing from the examples.
+ - [] type juggling to print whatever values are there. Possibly some format print.
+[] let bindings.
 [] conditional operators. "if", "and", "or", "not" etc.
-[] define functions. Lambdas to begin with
-  - [] closures to capture scope
-[] - adding meta to the parser, so we can error report properly
-[] - just better errors in general for parsing errors and undefined stuff or whatever.
-[] - recursion, so we can actually start building something useful.
-[] - build a program that actually does stuff, so we can figure out what is still missing.
+[] Define functions. Lambdas to begin with.
+  - [] Closures to capture scope.
+[] Adding meta to the parser, so we can error report properly.
+[] Just better errors in general for parsing errors and undefined stuff or whatever.
+   E.g. if parsing fails with an unknown node, it should not fall into a "** (CaseClauseError) no case clause matching:" error
+ - [] redo the lexer, as the do_lex() function does not know about the rest of the lexer state.
+      I would kinda like a central function that gets the state, but doesn't send it to the
+      rest of the do_lex() calls, and then let those calls return something like {:error, msg}
+      when they fail. That way we don't have to provide the lexer state all over the call stack to report errors.
+      It just happens in a single place, and can therefore easily be replaced with a different logger.
+[] Recursion, so we can actually start building something useful.
+[] Build a program that actually does stuff, so we can figure out what is still missing.
+[] Add meta data from lexer to parser, in order to report arity/variadic parameters.
+   Right now we just ignore parameters when there are more than the function needs.
+   This would also help with error logging in general, as we can provide line numbers and such.
+
 
 Later on down the line
-[] - multi-file programs through require
-[] - building a standalone executable
+[] multi-file programs through require.
+[] building a standalone executable.
