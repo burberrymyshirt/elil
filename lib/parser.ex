@@ -44,8 +44,17 @@ defmodule Elil.Parser do
   defp parse_term_list(pid, acc \\ []) when is_pid(pid) do
     case Lexer.current(pid) do
       nil ->
-        Lexer.shift(pid)
-        parse_term_list(pid, acc)
+        case Lexer.shift(pid) do
+          %Lexer{token: :oparen} ->
+            parse_term_list(pid, acc)
+
+          %Lexer{} = lexer ->
+            Elil.Logger.error_log_and_die(
+              Lexer.get_file_path(pid),
+              lexer,
+              "expected oparen as first token, but got: :#{Atom.to_string(lexer.token)}"
+            )
+        end
 
       %Lexer{token: :cparen} ->
         {:ok, Enum.reverse(acc)}
