@@ -6,10 +6,15 @@ defmodule Elil.Evaluator do
 
   defguard is_scope_type(type) when type in [:root, :scope]
 
-  def eval(file_path) do
+  def eval(file) do
     # TODO: error handling
-    {:ok, fd} = File.open(file_path, [:utf8, :read_ahead])
-    eval(fd, file_path)
+    case (File.exists?(file)) do
+      true ->
+        {:ok, fd} = File.open(file, [:utf8, :read_ahead])
+        eval(fd, file)
+      false ->
+        eval(file, "eval()")
+    end
     todo()
   end
 
