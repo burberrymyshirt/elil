@@ -47,7 +47,6 @@ defmodule Elil.Lexer do
         contents = IO.read(fd, :eof)
         lex_entire_file(contents, file)
       false ->
-        dump(file)
         lex_entire_file(file, "eval()")
     end
   end
@@ -62,7 +61,7 @@ defmodule Elil.Lexer do
   defp do_lex_entire_file(pid, result \\ []) when is_pid(pid) do
     case shift(pid) do
       %__MODULE__{token: :eof} -> Enum.reverse(result)
-      %__MODULE__{} = l -> do_lex_entire_file(pid, [l, result])
+      %__MODULE__{} = l -> do_lex_entire_file(pid, [l | result])
     end
   end
 
