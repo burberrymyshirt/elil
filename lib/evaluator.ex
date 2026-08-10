@@ -2,6 +2,16 @@ defmodule Elil.Evaluator do
   require Elil.Utils
   import Elil.Utils
   alias Elil.Lexer, as: Lexer
+  alias Elil.Parser.Node, as: Node
+
+  defguard is_scope_type(type) when type in [:root, :scope]
+
+  def eval(file_path) do
+    # TODO: error handling
+    {:ok, fd} = File.open(file_path, [:utf8, :read_ahead])
+    eval(fd, file_path)
+    todo()
+  end
 
   def eval(file, file_path) when is_pid(file) or is_atom(file) do
     # WANT: we just assume file is a valid atom or pid, so add validate_file or something
@@ -10,11 +20,56 @@ defmodule Elil.Evaluator do
 
   def eval(file, file_path) when is_binary(file) do
     {:ok, lexer_pid} = GenServer.start_link(Lexer, {file_path, file}, hibernate_after: 100)
-    {:ok, results} = Elil.Parser.parse(lexer_pid)
+    {:ok, root_node} = Elil.Parser.parse(lexer_pid)
+    %Node{type: :root} = root_node
     GenServer.stop(lexer_pid)
-    IO.write(:stdio, "results: ")
-    dump(results)
 
-    todo()
+    do_eval(root_node)
+
+  end
+
+  defp do_eval(%Node{type: :root} = node) do
+    eval_node(node)
+  end
+
+
+  defp eval_node(%Node{type: :root, body: nil} = node) do
+    eval_params(node)
+  end
+
+  defp eval_node(%Node{type: :scope, body: nil} = node) do
+    eval_params(node)
+  end
+
+  defp eval_node(%Node{type: :expr} = node) do
+    eval_expr(node)
+  end
+
+  defp eval_node(%Node{type: :lit} = node) do
+    eval_lit(node)
+  end
+
+  defp eval_params(%Node{type: type, body: nil} = node) when is_scope_type(type) do
+    Enum.map(node.params, &eval_node/1)
+  end
+
+  defp eval_expr(%Node{type: :expr} = node) do
+    eval_func(node.body, node.params)
+  end
+
+  defp eval_func(func, args) when is_binary(func) and is_list(args) do
+    # TODO: add meta data from parser to report arity/variadic parameters
+    #  Right now we just ignore parameters when there are more than the function needs
+    case func do
+      "echo" ->
+        Enum.map(args, &eval_node/1)
+        |> Enum.map(&IO.write/1)
+
+      _ -> Elil.Logger.error_log_and_die("undefined function: #{func}") #TODO: add meta data from parser, so we can report line numbers
+    end
+  end
+
+  defp eval_lit(%Node{type: :lit} = node) do
+    node.body
   end
 end
