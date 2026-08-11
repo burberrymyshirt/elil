@@ -1,13 +1,16 @@
 Todos and wants
 
-Most pressing
-[] dqstring parsing and a string literal. Don't know if I want just one type of string, which does everything though.
-[] adding more functions. "add" is the only one missing from the examples.
+--- Most pressing
+[x] dqstring parsing and a string literal. Don't know if I want just one type of string, which does everything though.
+[x] adding more functions. "add" is the only one missing from the examples.
+ - [] add actual argument validation to the add function.
  - [] type juggling to print whatever values are there. Possibly some format print.
+
 [] let bindings.
 [] conditional operators. "if", "and", "or", "not" etc.
 [] Define functions. Lambdas to begin with.
   - [] Closures to capture scope.
+
 [] Adding meta to the parser, so we can error report properly.
 [] Just better errors in general for parsing errors and undefined stuff or whatever.
    E.g. if parsing fails with an unknown node, it should not fall into a "** (CaseClauseError) no case clause matching:" error
@@ -16,13 +19,19 @@ Most pressing
       rest of the do_lex() calls, and then let those calls return something like {:error, msg}
       when they fail. That way we don't have to provide the lexer state all over the call stack to report errors.
       It just happens in a single place, and can therefore easily be replaced with a different logger.
+
+ - [] Evaluator should also error out when invalid function arguments are given. Right now it just assumes the correct params are given.
+    - [] Right now some functions are just variadic in nature and allat, so make some validation
+         that determines whether a function is variadic or not. Or if it should even be allowed to be vairadic at all.
+
 [] Recursion, so we can actually start building something useful.
 [] Build a program that actually does stuff, so we can figure out what is still missing.
 [] Add meta data from lexer to parser, in order to report arity/variadic parameters.
    Right now we just ignore parameters when there are more than the function needs.
    This would also help with error logging in general, as we can provide line numbers and such.
+[] Integer parsing from string should support more than just base 10
 
 
-Later on down the line
+--- Later on down the line
 [] multi-file programs through require.
 [] building a standalone executable.
