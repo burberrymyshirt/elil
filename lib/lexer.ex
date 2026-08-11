@@ -83,6 +83,7 @@ defmodule Elil.Lexer do
 
   def init({file_path, contents}) when is_binary(file_path) and is_binary(contents) do
     # Default to skipping comments = true
+    dump(contents)
     init({file_path, contents, true})
   end
 
@@ -221,34 +222,17 @@ defmodule Elil.Lexer do
 
   # dqstring
   defp do_lex(%Context{src_rest: <<?", rest::binary>>} = context) do
-    # WANT: handle escaping and such
-
-    charlist = String.to_charlist(rest)
-    nl_index = Enum.find_index(charlist, &(&1 === ?\n))
-    dq_index = Enum.find_index(charlist, &(&1 === ?"))
-
-    if is_nil(dq_index) do
-      # make this make sense <:-}
-      error_log("invalid string found")
-      exit({:shutdown, 1})
+    case parse_dqstring(rest) do
+      # TODO: see error logging paragraph in todo.txt. We are not able to provide location in file for these errors as of now
+      {:error, msg} -> error_log_and_die(msg)
+      {str, rest} ->
+        context_updates = [
+          src_rest: rest,
+          # TODO: make the parse_dqstring function itself return the count
+          chars_since_last_newline: context.chars_since_last_newline + String.length(str) + 2
+        ]
+        return_lex({Token.dqstring(), str}, context, context_updates)
     end
-
-    if nl_index < dq_index do
-      # TODO: if we do decide to use multiline strings, we need to handle newlines as well
-      todo("multiline strings are not implemented yet")
-      exit({:shutdown, 1})
-    end
-
-    # TODO: refactor line to parse_dqstring or something, like integer and identifier
-    {value, rest} = String.split_at(rest, dq_index)
-    rest = chop_right(rest)
-    # +2 for the surrounding quotes
-    context_updates = [
-      src_rest: rest,
-      chars_since_last_newline: context.chars_since_last_newline + String.length(value) + 2
-    ]
-
-    return_lex({Token.dqstring(), value}, context, context_updates)
   end
 
   # identifier base case
@@ -268,7 +252,7 @@ defmodule Elil.Lexer do
   end
 
   defp return_lex({token, value}, %Context{} = context, context_updates)
-       when is_list(context_updates) and is_atom(token) do
+       when is_list(context_updates) and is_atom(token) and is_binary(value) do
     lexer = %__MODULE__{
       token: token,
       value: value,
@@ -322,6 +306,7 @@ defmodule Elil.Lexer do
     end
   end
 
+  @compile {:inline, return_comment: 2}
   defp return_comment(rest, result) do
     result
     |> Enum.reverse()
@@ -329,14 +314,32 @@ defmodule Elil.Lexer do
     |> then(&{&1, rest})
   end
 
-  defp chop_right(str) do
-    # WANT: handle escaped sequences. E.g. newlines written in src are \\n whereas actual newlines are \n
-    if String.starts_with?(str, "\\") do
-      {_, rest} = String.split_at(str, 2)
-      rest
-    else
-      {_, rest} = String.split_at(str, 1)
-      rest
+  defp parse_dqstring(str, result \\ [])
+
+  defp parse_dqstring(str, result) do
+    case str do
+      <<?\n, _rest::binary>> ->
+        {:error, "multi-line strings are not supported yet™"}
+
+      <<?\r, ?\n, _rest::binary>> ->
+        {:error, "multi-line strings are not supported yet™"}
+
+      <<?\\, c, rest::binary>> ->
+        dump("escaped")
+        dump(to_string([c]))
+        IO.puts("")
+        parse_dqstring(rest, [c | result])
+
+      <<?", rest::binary>> ->
+        result
+        |> Enum.reverse()
+        |> List.to_string()
+        |> then(&{&1, rest})
+
+      <<c, rest::binary>> ->
+        parse_dqstring(rest, [c | result])
+      _ ->
+        {:error, "end of string not found"}
     end
   end
 end

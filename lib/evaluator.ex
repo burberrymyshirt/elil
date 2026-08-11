@@ -70,7 +70,18 @@ defmodule Elil.Evaluator do
         Enum.map(args, &eval_node/1)
         |> Enum.map(&IO.write/1)
 
-      _ -> Elil.Logger.error_log_and_die("undefined function: #{func}") #TODO: add meta data from parser, so we can report line numbers
+      "eval" ->
+        # Enum.map(args, &eval_node/1)
+        # |> Enum.map(&eval/1)
+        {arg, _} = List.pop_at(args, 0)
+        arg = eval_node(arg)
+
+        lexed = Elil.Lexer.lex_entire_file(arg)
+        dump(lexed)
+
+      # TODO: add meta data from parser, so we can report line numbers
+      #  see error logging in todo.txt
+      _ -> Elil.Logger.error_log_and_die("undefined function: #{func}")
     end
   end
 
