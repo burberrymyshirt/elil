@@ -79,6 +79,19 @@ defmodule Elil.Evaluator do
           v, _acc -> Elil.Logger.error_log_and_die("function add() expects only integers as arguments, got #{v}")
         end)
 
+      "sub" ->
+        Enum.map(args, fn
+          v -> r = eval_node(v)
+          |> to_string()
+          |> Integer.parse(10)
+          {r, _} = r
+          r
+        end)
+        |> Enum.reduce(fn
+          v, acc when is_integer(v) -> acc - v
+          v, _acc -> Elil.Logger.error_log_and_die("function add() expects only integers as arguments, got #{v}")
+        end)
+
       "echo" ->
         Enum.map(args, &eval_node/1)
         |> Enum.map(&IO.write/1)
