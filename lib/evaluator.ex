@@ -66,6 +66,19 @@ defmodule Elil.Evaluator do
     # TODO: add meta data from parser to report arity/variadic parameters
     #  Right now we just ignore parameters when there are more than the function needs
     case func do
+      "add" ->
+        Enum.map(args, fn
+          v -> r = eval_node(v)
+          |> to_string()
+          |> Integer.parse(10)
+          {r, _} = r
+          r
+        end)
+        |> Enum.reduce(0, fn
+          v, acc when is_integer(v) -> v + acc
+          v, _acc -> Elil.Logger.error_log_and_die("function add() expects only integers as arguments, got #{v}")
+        end)
+
       "echo" ->
         Enum.map(args, &eval_node/1)
         |> Enum.map(&IO.write/1)
