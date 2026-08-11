@@ -8,13 +8,15 @@ defmodule Elil.Evaluator do
 
   def eval(file) do
     # TODO: error handling
-    case (File.exists?(file)) do
+    case File.exists?(file) do
       true ->
         {:ok, fd} = File.open(file, [:utf8, :read_ahead])
         eval(fd, file)
+
       false ->
-        eval(file, "eval()")
+        eval(to_string(file), "eval()")
     end
+
     todo()
   end
 
@@ -30,13 +32,11 @@ defmodule Elil.Evaluator do
     GenServer.stop(lexer_pid)
 
     do_eval(root_node)
-
   end
 
   defp do_eval(%Node{type: :root} = node) do
     eval_node(node)
   end
-
 
   defp eval_node(%Node{type: :root, body: nil} = node) do
     eval_params(node)
@@ -71,17 +71,15 @@ defmodule Elil.Evaluator do
         |> Enum.map(&IO.write/1)
 
       "eval" ->
-        # Enum.map(args, &eval_node/1)
-        # |> Enum.map(&eval/1)
-        {arg, _} = List.pop_at(args, 0)
-        arg = eval_node(arg)
+        [arg | _] = args
 
-        lexed = Elil.Lexer.lex_entire_file(arg)
-        dump(lexed)
+        eval_node(arg)
+        |> eval()
 
       # TODO: add meta data from parser, so we can report line numbers
       #  see error logging in todo.txt
-      _ -> Elil.Logger.error_log_and_die("undefined function: #{func}")
+      _ ->
+        Elil.Logger.error_log_and_die("undefined function: #{func}")
     end
   end
 

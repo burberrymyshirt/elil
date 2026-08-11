@@ -46,6 +46,7 @@ defmodule Elil.Lexer do
         {:ok, fd} = File.open(file)
         contents = IO.read(fd, :eof)
         lex_entire_file(contents, file)
+
       false ->
         lex_entire_file(file, "eval()")
     end
@@ -83,7 +84,6 @@ defmodule Elil.Lexer do
 
   def init({file_path, contents}) when is_binary(file_path) and is_binary(contents) do
     # Default to skipping comments = true
-    dump(contents)
     init({file_path, contents, true})
   end
 
@@ -129,8 +129,8 @@ defmodule Elil.Lexer do
   end
 
   defguardp valid_identifier_char(char)
-            when char in ?A..?z
-            or char in [?_, ?-, ??, ?æ, ?ø, ?å, ?Æ, ?Ø, ?Å]
+            when char in ?A..?z or
+                   char in [?_, ?-, ??, ?æ, ?ø, ?å, ?Æ, ?Ø, ?Å]
 
   defp do_lex(%Context{src_rest: rest} = context) when rest === "" do
     value = ""
@@ -224,13 +224,16 @@ defmodule Elil.Lexer do
   defp do_lex(%Context{src_rest: <<?", rest::binary>>} = context) do
     case parse_dqstring(rest) do
       # TODO: see error logging paragraph in todo.txt. We are not able to provide location in file for these errors as of now
-      {:error, msg} -> error_log_and_die(msg)
+      {:error, msg} ->
+        error_log_and_die(msg)
+
       {str, rest} ->
         context_updates = [
           src_rest: rest,
           # TODO: make the parse_dqstring function itself return the count
-          chars_since_last_newline: context.chars_since_last_newline + String.length(str) + 2
+          chars_since_last_newline: context.chars_since_last_newline + length(str) + 2
         ]
+
         return_lex({Token.dqstring(), str}, context, context_updates)
     end
   end
@@ -252,7 +255,7 @@ defmodule Elil.Lexer do
   end
 
   defp return_lex({token, value}, %Context{} = context, context_updates)
-       when is_list(context_updates) and is_atom(token) and is_binary(value) do
+       when is_list(context_updates) and is_atom(token) do
     lexer = %__MODULE__{
       token: token,
       value: value,
@@ -325,19 +328,40 @@ defmodule Elil.Lexer do
         {:error, "multi-line strings are not supported yet™"}
 
       <<?\\, c, rest::binary>> ->
-        dump("escaped")
-        dump(to_string([c]))
-        IO.puts("")
-        parse_dqstring(rest, [c | result])
+        # TODO: idk if we should handle all of them ¯\_(ツ)_/¯
+        #  \0 - Null byte
+        #  \a - Bell
+        #  \b - Backspace
+        #  \t - Horizontal tab
+        #  \n - Line feed (New lines)
+        #  \v - Vertical tab
+        #  \f - Form feed
+        #  \r - Carriage return
+        #  \e - Command Escape
+        #  \s - Space
+        #  \# - Returns the # character itself, skipping interpolation
+        #  \\ - Single backslash
+        #  \xNN - A byte represented by the hexadecimal NN
+        #  \uNNNN - A Unicode code point represented by NNNN
+        #  \u{NNNNNN} - A Unicode code point represented by NNNNNN
+
+        case c do
+          ?n -> ?\n
+          ?t -> ?\t
+          ?r -> ?\r
+          _ -> c
+        end
+        |> then(&parse_dqstring(rest, [&1 | result]))
 
       <<?", rest::binary>> ->
         result
         |> Enum.reverse()
-        |> List.to_string()
+        # |> List.to_string()
         |> then(&{&1, rest})
 
       <<c, rest::binary>> ->
         parse_dqstring(rest, [c | result])
+
       _ ->
         {:error, "end of string not found"}
     end
