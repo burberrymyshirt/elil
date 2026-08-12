@@ -35,3 +35,10 @@ Todos and wants
 --- Later on down the line
 [] multi-file programs through require.
 [] building a standalone executable.
+
+
+--- ideas for projects using Elil
+- Postman collection json parser, that transforms to raw curl calls in structured directories, so I don't have to use that garbage anymore.
+- Issue tracker that is independent of git remotes, maybe even hosted in-repo as part of the source code, like tsoding/tatr does.
+- Management tooling of my personal home-lab. This is less of a specific idea, and more a grouping of ideas, as I don't really wanna depend on the sea of choices out there. I wanna own it myself. Although this language might not be suitable for that, as it depends on the erlang vm...
+- Personal finance cli program with persistence of some sort, because fuck Excel.
