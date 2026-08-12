@@ -1,6 +1,6 @@
 # Elil
 
-**Note**
+## NOTE
 This language does not make sense to use for anything in the real world.
 It depends on two runtimes, the language runtime itself, and the erlang vm.
 It does not compile to native BEAM code (as of right now 👀)
