@@ -2,5 +2,5 @@
 
 (
     (echo "asdf: \n")
-    (let "asdf" (add 34 35)) ; this let binding should be able to take an :ident or maybe even a keyword
-    (echo "asdf"))           ; this should also be able to print whatever the let binding introduced above
+    (let asdf (add 34 35)) ; this let binding should be able to take an :ident or maybe even a keyword
+    (echo asdf))           ; this should also be able to print whatever the let binding introduced above
