@@ -2,7 +2,7 @@ defmodule Elil.Cmd do
   alias Elil.Evaluator, as: Evaluator
   alias Elil.Utils, as: Utils
 
-  def start(argv) when is_list(argv) do
+  def main(argv) when is_list(argv) do
     {file_path, _argv_rest} = List.pop_at(System.argv(), 0)
 
     cond do

@@ -1,1 +1,1 @@
-Elil.Cmd.start(System.argv)
+Elil.Cmd.main(System.argv)
