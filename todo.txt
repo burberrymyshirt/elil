@@ -7,7 +7,7 @@ Todos and wants
  - [] type juggling to print whatever values are there. Possibly some format print.
 
 [] let bindings.
-[] conditional operators. "if", "and", "or", "not" etc.
+[] conditional operators & boolean operators. "if", "and", "or", "not" etc.
 [] Define functions. Lambdas to begin with.
   - [] Closures to capture scope.
 
