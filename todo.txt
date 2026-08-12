@@ -1,3 +1,9 @@
+Current and pressing bugs:
+[] characters are not being counted correctly in the parse_dqstring and parse_kwd lexer functions.
+[] finish adding the let binding in the parser (4 todo() in a row where it needs changes).
+ - [] also eval it. We need to keep track of scope when evaluating stuff like this I think.
+
+
 Todos and wants
 
 --- Most pressing
@@ -30,6 +36,9 @@ Todos and wants
    Right now we just ignore parameters when there are more than the function needs.
    This would also help with error logging in general, as we can provide line numbers and such.
 [] Integer parsing from string should support more than just base 10
+[] make the parser more strict on syntax, so we can fail before reaching the evaluator in more cases.
+   no work should really be done if we can detect something wrong before trying to run.
+   should be quite simple in many cases, with more matching of expected tokens in each parse function.
 
 
 --- Later on down the line
