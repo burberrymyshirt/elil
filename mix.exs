@@ -6,7 +6,8 @@ defmodule Elil.MixProject do
       app: :elil,
       version: "0.1.0",
       elixir: "~> 1.20",
-      deps: deps()
+      deps: deps(),
+      escript: [main_module: Elil.Cmd]
     ]
   end
 

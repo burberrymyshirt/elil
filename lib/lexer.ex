@@ -26,6 +26,8 @@ defmodule Elil.Lexer do
     def current_row(%Context{total_newlines: nl}), do: nl + 1
   end
 
+  @keywords ["let", "fn"]
+
   defmodule Token do
     def eof(), do: :eof
     def oparen(), do: :oparen
@@ -34,6 +36,7 @@ defmodule Elil.Lexer do
     def dqstring(), do: :dqstring
     def int(), do: :int
     def cmt(), do: :cmt
+    def kwd(), do: :kwd
   end
 
   defmodule LexerState do
@@ -223,14 +226,14 @@ defmodule Elil.Lexer do
   # dqstring
   defp do_lex(%Context{src_rest: <<?", rest::binary>>} = context) do
     case parse_dqstring(rest) do
-      # TODO: see error logging paragraph in todo.txt. We are not able to provide location in file for these errors as of now
+      # TODO: @see error logging paragraph in todo.txt. We are not able to provide location in file for these errors as of now
       {:error, msg} ->
         error_log_and_die(msg)
 
       {str, rest} ->
         context_updates = [
           src_rest: rest,
-          # TODO: make the parse_dqstring function itself return the count
+          # TODO: make the parse_dqstring function itself return the count, because this is very wrong when we interpret escape sequences
           chars_since_last_newline: context.chars_since_last_newline + length(str) + 2
         ]
 
@@ -240,14 +243,14 @@ defmodule Elil.Lexer do
 
   # identifier base case
   defp do_lex(%Context{} = context) do
-    {value, rest} = parse_identifier(context)
+    {{value, type}, rest} = parse_identifier(context)
 
     context_updates = [
       src_rest: rest,
       chars_since_last_newline: context.chars_since_last_newline + String.length(value)
     ]
 
-    return_lex({Token.ident(), value}, context, context_updates)
+    return_lex({type, value}, context, context_updates)
   end
 
   defp continue_lex(%Context{} = context, context_updates) when is_list(context_updates) do
@@ -275,10 +278,19 @@ defmodule Elil.Lexer do
   end
 
   defp parse_identifier(rest, result) do
-    result
-    |> Enum.reverse()
-    |> List.to_string()
-    |> then(&{&1, rest})
+    result =
+      result
+      |> Enum.reverse()
+      |> List.to_string()
+
+    type =
+      if result in @keywords do
+        Token.kwd()
+      else
+        Token.ident()
+      end
+
+    {{result, type}, rest}
   end
 
   defp parse_integer(context, result \\ [])

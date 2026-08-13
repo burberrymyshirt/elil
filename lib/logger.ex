@@ -20,7 +20,8 @@ defmodule Elil.Logger do
     exit({:shutdown, 1})
   end
 
-  # WANT: proper error logging with codes and ascii escape code colors and such
+  # TODO: @see logging errors in todo.txt
+  #  proper error logging with codes and ascii escape code colors and such
   def error_log(msg) when is_binary(msg), do: IO.puts(msg)
 
   def error_log(file_path, msg) when is_binary(file_path) and is_binary(msg) do

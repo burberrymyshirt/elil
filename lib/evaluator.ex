@@ -16,8 +16,6 @@ defmodule Elil.Evaluator do
       false ->
         eval(to_string(file), "eval()")
     end
-
-    todo()
   end
 
   def eval(file, file_path) when is_pid(file) or is_atom(file) do
@@ -66,30 +64,53 @@ defmodule Elil.Evaluator do
     # TODO: add meta data from parser to report arity/variadic parameters
     #  Right now we just ignore parameters when there are more than the function needs
     case func do
+      "let" ->
+        todo("move keywords to separate eval function maybe? idk.")
+        todo("implement let bindings")
+
+      "fn" ->
+        todo("implement let bindings")
+
       "add" ->
         Enum.map(args, fn
-          v -> r = eval_node(v)
-          |> to_string()
-          |> Integer.parse(10)
-          {r, _} = r
-          r
+          v ->
+            r =
+              eval_node(v)
+              |> to_string()
+              |> Integer.parse(10)
+
+            {r, _} = r
+            r
         end)
         |> Enum.reduce(0, fn
-          v, acc when is_integer(v) -> v + acc
-          v, _acc -> Elil.Logger.error_log_and_die("function add() expects only integers as arguments, got #{v}")
+          v, acc when is_integer(v) ->
+            v + acc
+
+          v, _acc ->
+            Elil.Logger.error_log_and_die(
+              "function add() expects only integers as arguments, got #{v}"
+            )
         end)
 
       "sub" ->
         Enum.map(args, fn
-          v -> r = eval_node(v)
-          |> to_string()
-          |> Integer.parse(10)
-          {r, _} = r
-          r
+          v ->
+            r =
+              eval_node(v)
+              |> to_string()
+              |> Integer.parse(10)
+
+            {r, _} = r
+            r
         end)
         |> Enum.reduce(fn
-          v, acc when is_integer(v) -> acc - v
-          v, _acc -> Elil.Logger.error_log_and_die("function add() expects only integers as arguments, got #{v}")
+          v, acc when is_integer(v) ->
+            acc - v
+
+          v, _acc ->
+            Elil.Logger.error_log_and_die(
+              "function add() expects only integers as arguments, got #{v}"
+            )
         end)
 
       "echo" ->
@@ -103,7 +124,7 @@ defmodule Elil.Evaluator do
         |> eval()
 
       # TODO: add meta data from parser, so we can report line numbers
-      #  see error logging in todo.txt
+      #  @see logging errors in todo.txt
       _ ->
         Elil.Logger.error_log_and_die("undefined function: #{func}")
     end
