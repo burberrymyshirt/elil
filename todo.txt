@@ -49,6 +49,7 @@ Todos and wants
 [] building a standalone executable.
 [] introduce namespaces. Everything is in a global namespace for now, but idk if that is very nice, especially since everything is parsed in a single pass.
    Doesn't necessarily have anything to do with namespaces being nice, but whatever. Dual pass could make global issues easier to debug I guess.
+   Things also don't go out of context once out of scope. This is the biggest issue as of right now, as you won't be able to reuse names ever.
    @see global_namespace
 
 --- ideas for projects using Elil

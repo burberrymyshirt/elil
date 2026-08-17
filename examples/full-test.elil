@@ -1,2 +1,2 @@
-(let asdf "i am asdf") ; this let binding should be able to take an :ident or maybe even a keyword
-(echo asdf "\n"))        ; this should also be able to print whatever the let binding introduced above
+(let asdf "i am asdf")                 ; this let binding should be able to take an :ident or maybe even a keyword
+(echo "value of asdf: \"" asdf "\"\n") ; this should also be able to print whatever the let binding introduced above
