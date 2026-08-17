@@ -12,7 +12,8 @@ Todos and wants
  - [] add actual argument validation to the add function.
  - [] type juggling to print whatever values are there. Possibly some format print.
 
-[] let bindings.
+[x] let bindings.
+ - @see global_namespace issue below
 [] conditional operators & boolean operators. "if", "and", "or", "not" etc.
 [] Define functions. Lambdas to begin with.
   - [] Closures to capture scope.
@@ -39,15 +40,14 @@ Todos and wants
    @see logging errors
 
 [] Integer parsing from string should support more than just base 10
-[] make the parser more strict on syntax, so we can fail before reaching the evaluator in more cases.
+[] Make the parser more strict on syntax, so we can fail before reaching the evaluator in more cases.
    No work should really be done if we can detect something wrong before trying to run.
    Should be quite simple in many cases, with more matching of expected tokens in each parse function.
-
-[] Handle parenthesis properly, as this example below will still run correctly, even though it has an extra :cparen at the end:
-    ```elil
-    (let asdf "i am asdf")                 ; this let binding should be able to take an :ident or maybe even a keyword
-    (echo "value of asdf: \"" asdf "\"\n")) ; this should also be able to print whatever the let binding introduced above
-    ```
+ - [] Handle parenthesis properly, as this example below will still run correctly, even though it has an extra :cparen at the end:
+      ```elil
+      (let asdf "i am asdf")                 ; this let binding should be able to take an :ident or maybe even a keyword
+      (echo "value of asdf: \"" asdf "\"\n")) ; this should also be able to print whatever the let binding introduced above
+      ```
 
 --- Later on down the line
 [] multi-file programs through require.
