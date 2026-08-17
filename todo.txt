@@ -25,16 +25,19 @@ Todos and wants
       rest of the do_lex() calls, and then let those calls return something like {:error, msg}
       when they fail. That way we don't have to provide the lexer state all over the call stack to report errors.
       It just happens in a single place, and can therefore easily be replaced with a different logger.
+      @see logging errors
 
  - [] Evaluator should also error out when invalid function arguments are given. Right now it just assumes the correct params are given.
     - [] Right now some functions are just variadic in nature and allat, so make some validation
-         that determines whether a function is variadic or not. Or if it should even be allowed to be vairadic at all.
+         that determines whether a function is variadic or not. Or if it should even be allowed to be variadic at all.
 
 [] Recursion, so we can actually start building something useful.
 [] Build a program that actually does stuff, so we can figure out what is still missing.
 [] Add meta data from lexer to parser, in order to report arity/variadic parameters.
    Right now we just ignore parameters when there are more than the function needs.
    This would also help with error logging in general, as we can provide line numbers and such.
+   @see logging errors
+
 [] Integer parsing from string should support more than just base 10
 [] make the parser more strict on syntax, so we can fail before reaching the evaluator in more cases.
    no work should really be done if we can detect something wrong before trying to run.
@@ -44,7 +47,9 @@ Todos and wants
 --- Later on down the line
 [] multi-file programs through require.
 [] building a standalone executable.
-
+[] introduce namespaces. Everything is in a global namespace for now, but idk if that is very nice, especially since everything is parsed in a single pass.
+   Doesn't necessarily have anything to do with namespaces being nice, but whatever. Dual pass could make global issues easier to debug I guess.
+   @see global_namespace
 
 --- ideas for projects using Elil
 - Postman collection json parser, that transforms to raw curl calls in structured directories, so I don't have to use that garbage anymore.
