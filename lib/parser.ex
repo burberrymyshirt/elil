@@ -16,6 +16,7 @@ defmodule Elil.Parser do
       def scope(), do: :scope
       def lit(), do: :lit
       def let(), do: :let
+      def ident(), do: :ident
     end
   end
 
@@ -37,11 +38,6 @@ defmodule Elil.Parser do
   defp parse_term(pid) do
     case Lexer.current(pid) do
       %Lexer{token: :ident} ->
-        todo("this should also handle idents being used as values rather than just expressions")
-        todo("e.g. in the case of a previous let binding being assigned something or a function defined in a different module")
-        todo("right now we just assume that any identifier is the beginning of an expression")
-        todo("I don't know if we need new syntax for this, although it should not be needed I don't think")
-
         ident = parse_ident(pid)
         Lexer.shift(pid)
         params = parse_params(pid)
@@ -117,7 +113,6 @@ defmodule Elil.Parser do
   end
 
   defp parse_params(pid, acc \\ []) when is_pid(pid) do
-    dump(Lexer.current(pid))
     case Lexer.current(pid) do
       %Lexer{token: :oparen} ->
         Lexer.shift(pid)
@@ -127,8 +122,15 @@ defmodule Elil.Parser do
         parse_params(pid, [term | acc])
 
       %Lexer{token: token} when is_lit(token) ->
+        body = parse_lit(pid)
         Lexer.shift(pid)
-        parse_params(pid, [struct!(%Node{type: Node.Type.lit(), body: parse_lit(pid)}) | acc])
+        parse_params(pid, [%Node{type: Node.Type.lit(), body: body} | acc])
+
+      # Identifier is used as an argument to e.g. a function.
+      %Lexer{token: :ident} ->
+        node = struct!(Node, type: Node.Type.ident(), body: parse_ident(pid))
+        Lexer.shift(pid)
+        parse_params(pid, [node | acc])
 
       %Lexer{token: :cparen} ->
         Enum.reverse(acc)
