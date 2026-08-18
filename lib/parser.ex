@@ -59,15 +59,11 @@ defmodule Elil.Parser do
           # handle standalone terms
           %Lexer{token: token} when token in [:ident, :kwd] ->
             {:ok, term} = parse_term(pid)
-            %Lexer{token: :cparen} = Lexer.current(pid)
-            Lexer.shift(pid)
             parse_root_term_list(pid, [term | acc])
 
           # handle nested scopes
           %Lexer{token: :oparen} ->
             {:ok, list} = parse_scope_term_list(pid)
-            %Lexer{token: :cparen} = Lexer.current(pid)
-            Lexer.shift(pid)
             node = struct!(%Node{}, type: Node.Type.scope(), params: list)
             parse_root_term_list(pid, [node | acc])
         end
@@ -77,6 +73,7 @@ defmodule Elil.Parser do
   defp parse_scope_term_list(pid, acc \\ []) when is_pid(pid) and is_list(acc) do
     case Lexer.current(pid) do
       %Lexer{token: :cparen} ->
+        Lexer.shift(pid)
         {:ok, Enum.reverse(acc)}
 
       %Lexer{token: :oparen} ->
@@ -84,8 +81,6 @@ defmodule Elil.Parser do
           # handle standalone terms
           %Lexer{token: token} when token in [:ident, :kwd] ->
             {:ok, term} = parse_term(pid)
-            %Lexer{token: :cparen} = Lexer.current(pid)
-            Lexer.shift(pid)
             parse_scope_term_list(pid, [term | acc])
         end
     end
@@ -95,15 +90,12 @@ defmodule Elil.Parser do
     case Lexer.current(pid) do
       %Lexer{token: :ident} ->
         ident = parse_ident(pid)
-        Lexer.shift(pid)
         params = parse_params(pid)
         node = struct!(%Node{}, type: Node.Type.expr(), body: ident, params: params)
-        %Lexer{token: :cparen} = Lexer.current(pid)
         {:ok, node}
 
       %Lexer{token: :kwd} ->
         node = parse_kwd(pid)
-        %Lexer{token: :cparen} = Lexer.current(pid)
         {:ok, node}
 
       %Lexer{token: token} when is_lit(token) ->
@@ -123,6 +115,7 @@ defmodule Elil.Parser do
   defp parse_ident(pid) when is_pid(pid) do
     case Lexer.current(pid) do
       %Lexer{token: :ident} = lexer ->
+        Lexer.shift(pid)
         lexer.value
     end
   end
@@ -138,16 +131,15 @@ defmodule Elil.Parser do
 
       %Lexer{token: token} when is_lit(token) ->
         body = parse_lit(pid)
-        Lexer.shift(pid)
         parse_params(pid, [%Node{type: Node.Type.lit(), body: body} | acc])
 
       # Identifier is used as an argument to e.g. a function.
       %Lexer{token: :ident} ->
         node = struct!(Node, type: Node.Type.ident(), body: parse_ident(pid))
-        Lexer.shift(pid)
         parse_params(pid, [node | acc])
 
       %Lexer{token: :cparen} ->
+        Lexer.shift(pid)
         Enum.reverse(acc)
     end
   end
@@ -155,6 +147,7 @@ defmodule Elil.Parser do
   defp parse_lit(pid) when is_pid(pid) do
     case Lexer.current(pid) do
       %Lexer{token: token} = lexer when is_lit(token) ->
+        Lexer.shift(pid)
         lexer.value
 
       %Lexer{} = lexer ->
@@ -179,9 +172,7 @@ defmodule Elil.Parser do
         case Lexer.shift(pid) do
           %Lexer{token: :ident} ->
             ident = parse_ident(pid)
-            Lexer.shift(pid)
-            {:ok, term} = parse_term(pid)
-            Lexer.shift(pid)
+            {:ok, term} = parse_scope_term_list(pid)
             %Node{type: Node.Type.let(), body: ident, params: [term]}
 
           %Lexer{} = lexer ->
