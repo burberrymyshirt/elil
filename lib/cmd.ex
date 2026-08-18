@@ -22,9 +22,10 @@ defmodule Elil.Cmd do
 
           {:ok, fd} ->
             Evaluator.eval(fd, file_path)
-          if length(argv_rest) > 0 do
-            main(argv_rest)
-          end
+
+            if length(argv_rest) > 0 do
+              main(argv_rest)
+            end
         end
     end
   end
