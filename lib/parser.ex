@@ -173,7 +173,8 @@ defmodule Elil.Parser do
           %Lexer{token: :ident} ->
             ident = parse_ident(pid)
             {:ok, term} = parse_scope_term_list(pid)
-            %Node{type: Node.Type.let(), body: ident, params: [term]}
+            1 = length(term) # hard assert for now.
+            %Node{type: Node.Type.let(), body: ident, params: term}
 
           %Lexer{} = lexer ->
             Elil.Logger.error_log_and_die(
