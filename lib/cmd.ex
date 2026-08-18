@@ -3,7 +3,7 @@ defmodule Elil.Cmd do
   alias Elil.Utils, as: Utils
 
   def main(argv) when is_list(argv) do
-    {file_path, _argv_rest} = List.pop_at(System.argv(), 0)
+    {file_path, argv_rest} = List.pop_at(argv, 0)
 
     cond do
       is_nil(file_path) ->
@@ -22,6 +22,9 @@ defmodule Elil.Cmd do
 
           {:ok, fd} ->
             Evaluator.eval(fd, file_path)
+          if length(argv_rest) > 0 do
+            main(argv_rest)
+          end
         end
     end
   end

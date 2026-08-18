@@ -34,7 +34,7 @@ defmodule Elil.Utils do
     v
   end
 
-  @default_usage_msg "Usage: elixir elil.exs [input_file]"
+  @default_usage_msg "Usage: elixir elil.exs <input_file> ..."
 
   def print_usage(message) when is_binary(message), do: print_usage([message])
 
