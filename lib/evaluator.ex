@@ -149,15 +149,11 @@ defmodule Elil.Evaluator do
         todo("implement let bindings")
 
       "add" ->
-        Enum.map(args, fn
-          v ->
-            r =
-              eval_node(pid, v)
-              |> to_string()
-              |> Integer.parse(10)
-
-            {r, _} = r
-            r
+        Enum.map(args, fn v ->
+          eval_node(pid, v)
+          |> to_string()
+          |> Integer.parse(10)
+          |> elem(0)
         end)
         |> Enum.reduce(0, fn
           v, acc when is_integer(v) ->
@@ -172,13 +168,10 @@ defmodule Elil.Evaluator do
       "sub" ->
         Enum.map(args, fn
           v ->
-            r =
-              eval_node(pid, v)
-              |> to_string()
-              |> Integer.parse(10)
-
-            {r, _} = r
-            r
+            eval_node(pid, v)
+            |> to_string()
+            |> Integer.parse(10)
+            |> elem(0)
         end)
         |> Enum.reduce(fn
           v, acc when is_integer(v) ->
