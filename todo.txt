@@ -1,7 +1,3 @@
-Current and pressing bugs:
-[] characters are not being counted correctly in the parse_dqstring and parse_kwd lexer functions.
-
-
 Todos and wants
 
 --- Most pressing
@@ -13,7 +9,8 @@ Todos and wants
 [x] let bindings.
  - @see global_namespace issue below
 [] conditional operators & boolean operators. "if", "and", "or", "not" etc.
-[] Define functions. Lambdas to begin with.
+[] Define functions.
+  - [] Lambdas first.
   - [] Closures to capture scope.
 
 [] Adding meta to the parser, so we can error report properly.
