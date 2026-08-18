@@ -31,17 +31,17 @@ defmodule Elil.Parser do
   defguard is_lit(v) when v in [:int, :dqstring]
 
   def parse(lexer_pid) when is_pid(lexer_pid) do
-    {:ok, result} = parse_term_list(lexer_pid)
+    {:ok, result} = parse_root_term_list(lexer_pid)
     {:ok, %Node{type: Node.Type.root(), params: result}}
   end
 
-  defp parse_term_list(pid, acc \\ [], opts \\ []) when is_pid(pid) do
+  defp parse_root_term_list(pid, acc \\ []) when is_pid(pid) and is_list(acc) do
     case Lexer.current(pid) do
       # bootstrap the lexer
       nil ->
         case Lexer.shift(pid) do
           %Lexer{token: :oparen} ->
-            parse_term_list(pid, acc)
+            parse_root_term_list(pid, acc)
 
           %Lexer{} = lexer ->
             Elil.Logger.error_log_and_die(
@@ -51,33 +51,8 @@ defmodule Elil.Parser do
             )
         end
 
-      %Lexer{token: :cparen} = lexer ->
-        # handle nested scopes. For root scopes, cparen should not be allowed
-        case Keyword.get(opts, :expect_cparen) do
-          nil ->
-            Elil.Logger.error_log_and_die(
-              Lexer.get_file_path(pid),
-              lexer,
-              "unexpected closing parentheses"
-            )
-
-          true ->
-            {:ok, Enum.reverse(acc)}
-        end
-
-      %Lexer{token: :eof} = lexer ->
-        # handle nested scopes. For root scopes, cparen should not be allowed
-        case Keyword.get(opts, :expect_cparen) do
-          true ->
-            Elil.Logger.error_log_and_die(
-              Lexer.get_file_path(pid),
-              lexer,
-              "unexpected EOF, expected closing parentheses"
-            )
-
-          v when v in [nil, false] ->
-            {:ok, Enum.reverse(acc)}
-        end
+      %Lexer{token: :eof} ->
+        {:ok, Enum.reverse(acc)}
 
       %Lexer{token: :oparen} ->
         case Lexer.shift(pid) do
@@ -86,15 +61,32 @@ defmodule Elil.Parser do
             {:ok, term} = parse_term(pid)
             %Lexer{token: :cparen} = Lexer.current(pid)
             Lexer.shift(pid)
-            parse_term_list(pid, [term | acc])
+            parse_root_term_list(pid, [term | acc])
 
           # handle nested scopes
           %Lexer{token: :oparen} ->
-            {:ok, list} = parse_term_list(pid, [], expect_cparen: true)
+            {:ok, list} = parse_scope_term_list(pid)
             %Lexer{token: :cparen} = Lexer.current(pid)
             Lexer.shift(pid)
             node = struct!(%Node{}, type: Node.Type.scope(), params: list)
-            parse_term_list(pid, [node | acc])
+            parse_root_term_list(pid, [node | acc])
+        end
+    end
+  end
+
+  defp parse_scope_term_list(pid, acc \\ []) when is_pid(pid) and is_list(acc) do
+    case Lexer.current(pid) do
+      %Lexer{token: :cparen} ->
+        {:ok, Enum.reverse(acc)}
+
+      %Lexer{token: :oparen} ->
+        case Lexer.shift(pid) do
+          # handle standalone terms
+          %Lexer{token: token} when token in [:ident, :kwd] ->
+            {:ok, term} = parse_term(pid)
+            %Lexer{token: :cparen} = Lexer.current(pid)
+            Lexer.shift(pid)
+            parse_scope_term_list(pid, [term | acc])
         end
     end
   end
