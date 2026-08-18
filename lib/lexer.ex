@@ -230,11 +230,10 @@ defmodule Elil.Lexer do
       {:error, msg} ->
         error_log_and_die(msg)
 
-      {str, rest} ->
+      {str, rest, count} ->
         context_updates = [
           src_rest: rest,
-          # TODO: make the parse_dqstring function itself return the count, because this is very wrong when we interpret escape sequences
-          chars_since_last_newline: context.chars_since_last_newline + length(str) + 2
+          chars_since_last_newline: count + 2 # +2 for the opening and closing quotes
         ]
 
         return_lex({Token.dqstring(), str}, context, context_updates)
@@ -329,9 +328,9 @@ defmodule Elil.Lexer do
     |> then(&{&1, rest})
   end
 
-  defp parse_dqstring(str, result \\ [])
+  defp parse_dqstring(str, result \\ [], count \\ 0)
 
-  defp parse_dqstring(str, result) do
+  defp parse_dqstring(str, result, count) do
     case str do
       <<?\n, _rest::binary>> ->
         {:error, "multi-line strings are not supported yet™"}
@@ -357,22 +356,22 @@ defmodule Elil.Lexer do
         #  \uNNNN - A Unicode code point represented by NNNN
         #  \u{NNNNNN} - A Unicode code point represented by NNNNNN
 
-        case c do
-          ?n -> ?\n
-          ?t -> ?\t
-          ?r -> ?\r
-          _ -> c
+        {c, c_count} = case c do
+          ?n -> {?\n, 2}
+          ?t -> {?\t, 2}
+          ?r -> {?\r, 2}
+          _ -> {c, 1}
         end
-        |> then(&parse_dqstring(rest, [&1 | result]))
+        parse_dqstring(rest, [c | result], count + c_count)
 
       <<?", rest::binary>> ->
         result
         |> Enum.reverse()
         # |> List.to_string()
-        |> then(&{&1, rest})
+        |> then(&{&1, rest, count})
 
       <<c, rest::binary>> ->
-        parse_dqstring(rest, [c | result])
+        parse_dqstring(rest, [c | result], count + 1)
 
       _ ->
         {:error, "end of string not found"}
