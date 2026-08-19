@@ -1,0 +1,7 @@
+(let asdf "first assignment")
+
+(
+    (let asdf "second assignment")
+    (echo "first echo: " asdf "\n"))
+
+(echo "second echo: " asdf "\n")

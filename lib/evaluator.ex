@@ -7,7 +7,15 @@ defmodule Elil.Evaluator do
   defmodule Context do
     use GenServer
 
-    defstruct lets: %{}
+    defmodule Scope do
+      defstruct lets: %{}
+    end
+
+    defstruct scopes: []
+
+    def push_scope(pid), do: GenServer.call(pid, {:push_scope})
+
+    def pop_scope(pid), do: GenServer.call(pid, {:pop_scope})
 
     def put_let(pid, %Node{type: :let} = node) when is_pid(pid) do
       # everything lives in a global namespace for now.
@@ -33,25 +41,59 @@ defmodule Elil.Evaluator do
     end
 
     @impl true
+    def handle_call({:push_scope}, _from, %Context{} = state) do
+      state = struct!(state, scopes: [struct!(Scope) | state.scopes])
+      {:reply, {:ok}, state}
+    end
+
+    @impl true
+    def handle_call({:pop_scope}, _from, %Context{} = state) do
+      [_ | scopes] = state.scopes
+      state = struct!(state, scopes: scopes)
+      {:reply, {:ok}, state}
+    end
+
+    @impl true
     def handle_call({:put_let, %Node{type: :let} = node}, _from, %Context{} = state) do
-      case Map.has_key?(state.lets, node.body) do
+      # TODO: make local variables when we introduce functions
+      [scope | rest_scopes] = state.scopes
+
+      case Map.has_key?(scope.lets, node.body) do
         true ->
           {:reply, :already_exists, state}
 
         false ->
           # use the variable name as the key
-          lets = Map.put_new(state.lets, node.body, node)
-          {:reply, :ok, struct!(state, lets: lets)}
+          lets = Map.put_new(scope.lets, node.body, node)
+          scope = struct!(scope, lets: lets)
+          {:reply, :ok, struct!(state, scopes: [scope | rest_scopes])}
       end
     end
 
+    @impl true
     def handle_call({:get_let, name}, _from, %Context{} = state) do
-      case Map.get(state.lets, name) do
+      # TODO: make local variables when we introduce functions
+      case do_get_let(name, state.scopes) do
+        {:undefined} ->
+          {:reply, {:undefined}, state}
+
+        {:ok, %Node{} = node} ->
+          {:reply, {:ok, node}, state}
+      end
+    end
+
+    defp do_get_let(name, scopes) when is_binary(name) and is_list(scopes) do
+      [scope | rest_scopes] = scopes
+
+      case Map.get(scope.lets, name) do
         nil ->
-          {:reply, :undefined, state}
+          case 0 === length(rest_scopes) do
+            true -> {:undefined}
+            false -> do_get_let(name, rest_scopes)
+          end
 
         %Node{} = node ->
-          {:reply, {:ok, node}, state}
+          {:ok, node}
       end
     end
   end
@@ -78,8 +120,8 @@ defmodule Elil.Evaluator do
   def eval(file, file_path) when is_binary(file) do
     {:ok, lexer_pid} = GenServer.start_link(Lexer, {file_path, file}, hibernate_after: 100)
     {:ok, root_node} = Elil.Parser.parse(lexer_pid)
-    %Node{type: :root} = root_node
     GenServer.stop(lexer_pid)
+    %Node{type: :root} = root_node
 
     {:ok, context_pid} = GenServer.start_link(Context, [])
 
@@ -97,11 +139,15 @@ defmodule Elil.Evaluator do
   end
 
   defp eval_node(pid, %Node{type: :root, body: nil} = node) when is_pid(pid) do
+    {:ok} = Context.push_scope(pid)
     eval_params(pid, node)
+    {:ok} = Context.pop_scope(pid)
   end
 
   defp eval_node(pid, %Node{type: :scope, body: nil} = node) when is_pid(pid) do
+    {:ok} = Context.push_scope(pid)
     eval_params(pid, node)
+    {:ok} = Context.pop_scope(pid)
   end
 
   defp eval_node(pid, %Node{type: :expr} = node) when is_pid(pid) do

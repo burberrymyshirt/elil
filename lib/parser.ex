@@ -56,16 +56,16 @@ defmodule Elil.Parser do
 
       %Lexer{token: :oparen} ->
         case Lexer.shift(pid) do
-          # handle standalone terms
-          %Lexer{token: token} when token in [:ident, :kwd] ->
-            {:ok, term} = parse_term(pid)
-            parse_root_term_list(pid, [term | acc])
-
           # handle nested scopes
           %Lexer{token: :oparen} ->
             {:ok, list} = parse_scope_term_list(pid)
             node = struct!(%Node{}, type: Node.Type.scope(), params: list)
             parse_root_term_list(pid, [node | acc])
+
+          # handle standalone terms
+          %Lexer{} ->
+            {:ok, term} = parse_term(pid)
+            parse_root_term_list(pid, [term | acc])
         end
     end
   end
@@ -90,7 +90,7 @@ defmodule Elil.Parser do
     case Lexer.current(pid) do
       %Lexer{token: :ident} ->
         ident = parse_ident(pid)
-        params = parse_params(pid)
+        {:ok, params} = parse_params(pid)
         node = struct!(%Node{}, type: Node.Type.expr(), body: ident, params: params)
         {:ok, node}
 
@@ -100,6 +100,9 @@ defmodule Elil.Parser do
 
       %Lexer{token: token} when is_lit(token) ->
         lit = parse_lit(pid)
+
+        # parse_lit can't shift more than it already is, cause then we will end up skipping tokens.
+        Lexer.shift(pid)
         node = %Node{type: Node.Type.lit(), body: lit}
         {:ok, node}
 
@@ -125,8 +128,6 @@ defmodule Elil.Parser do
       %Lexer{token: :oparen} ->
         Lexer.shift(pid)
         {:ok, term} = parse_term(pid)
-        %Lexer{token: :cparen} = Lexer.current(pid)
-        Lexer.shift(pid)
         parse_params(pid, [term | acc])
 
       %Lexer{token: token} when is_lit(token) ->
@@ -140,7 +141,7 @@ defmodule Elil.Parser do
 
       %Lexer{token: :cparen} ->
         Lexer.shift(pid)
-        Enum.reverse(acc)
+        {:ok, Enum.reverse(acc)}
     end
   end
 
@@ -172,8 +173,9 @@ defmodule Elil.Parser do
         case Lexer.shift(pid) do
           %Lexer{token: :ident} ->
             ident = parse_ident(pid)
-            {:ok, term} = parse_scope_term_list(pid)
-            1 = length(term) # hard assert for now.
+            {:ok, term} = parse_params(pid)
+            # hard assert for now.
+            1 = length(term)
             %Node{type: Node.Type.let(), body: ident, params: term}
 
           %Lexer{} = lexer ->

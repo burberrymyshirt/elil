@@ -1,3 +1,10 @@
+Current and pressing bugs:
+[] examples/full.elil doesn't print numbers as string. It prints the literal char 'E',
+   as that is the ascii charater of the digit 69. Types should probably be passed from
+   the parser to the evaluator, instead of just passing lit. But I think its because
+   the add function returns charlist containing a number, which gets printed as the ascii literal.
+   We have just been using strings for everything else so far, so it needs to be redone I think.
+
 Todos and wants
 
 --- Most pressing
@@ -46,8 +53,12 @@ Todos and wants
       ```
 
 --- Later on down the line
+[] with statements when nested cases are used. They just seem kind of confusing, so not touching for now.
+   nested cases are very readable and work fine, but are just pretty bloated.
 [] multi-file programs through require.
 [] building a standalone executable.
+[] maybe implement multi stage compilation. Right now everything is single pass, which makes undefined variables annoying.
+   We can essentially know at parse time when something is undefined, so we don't run any code before everything is in scope.
 [] introduce namespaces. Everything is in a global namespace for now, but idk if that is very nice, especially since everything is parsed in a single pass.
    Doesn't necessarily have anything to do with namespaces being nice, but whatever. Dual pass could make global issues easier to debug I guess.
    Things also don't go out of context once out of scope. This is the biggest issue as of right now, as you won't be able to reuse names ever.

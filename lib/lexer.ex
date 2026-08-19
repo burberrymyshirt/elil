@@ -233,7 +233,8 @@ defmodule Elil.Lexer do
       {str, rest, count} ->
         context_updates = [
           src_rest: rest,
-          chars_since_last_newline: count + 2 # +2 for the opening and closing quotes
+          # +2 for the opening and closing quotes
+          chars_since_last_newline: count + 2
         ]
 
         return_lex({Token.dqstring(), str}, context, context_updates)
@@ -356,12 +357,14 @@ defmodule Elil.Lexer do
         #  \uNNNN - A Unicode code point represented by NNNN
         #  \u{NNNNNN} - A Unicode code point represented by NNNNNN
 
-        {c, c_count} = case c do
-          ?n -> {?\n, 2}
-          ?t -> {?\t, 2}
-          ?r -> {?\r, 2}
-          _ -> {c, 1}
-        end
+        {c, c_count} =
+          case c do
+            ?n -> {?\n, 2}
+            ?t -> {?\t, 2}
+            ?r -> {?\r, 2}
+            _ -> {c, 1}
+          end
+
         parse_dqstring(rest, [c | result], count + c_count)
 
       <<?", rest::binary>> ->
