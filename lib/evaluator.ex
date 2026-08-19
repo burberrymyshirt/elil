@@ -123,15 +123,21 @@ defmodule Elil.Evaluator do
     GenServer.stop(lexer_pid)
     %Node{type: :root} = root_node
 
-    {:ok, context_pid} = GenServer.start_link(Context, [])
+    if Elil.Cmd.get_option_bool("print_ast") do
+      IO.inspect(root_node)
+    else
+      {:ok, context_pid} = GenServer.start_link(Context, [])
 
-    # TODO: if we bubble errors up to the surface through returns, we can handle errors properly here.
-    #  I don't really wanna use exceptions. I feel like they might be a crutch for a poor recursive design.
-    #  Although that might be wrong and exceptions are just the way to go. Who knows.
+      # TODO: if we bubble errors up to the surface through returns, we can handle errors properly here.
+      #  I don't really wanna use exceptions. I feel like they might be a crutch for a poor recursive design.
+      #  Although that might be wrong and exceptions are just the way to go. Who knows.
 
-    do_eval(context_pid, root_node)
+      do_eval(context_pid, root_node)
 
-    GenServer.stop(context_pid)
+      GenServer.stop(context_pid)
+    end
+
+    :ok
   end
 
   defp do_eval(pid, %Node{type: :root} = node) when is_pid(pid) do
