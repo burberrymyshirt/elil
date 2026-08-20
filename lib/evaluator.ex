@@ -162,6 +162,9 @@ defmodule Elil.Evaluator do
   end
 
   def eval(file, file_path) when is_binary(file) do
+    if (Elil.Cmd.get_option_bool("print_file_path")) do
+      IO.puts("Evaluating file: "<>file_path)
+    end
     {:ok, lexer_pid} = GenServer.start_link(Lexer, {file_path, file}, hibernate_after: 100)
     {:ok, root_node} = Elil.Parser.parse(lexer_pid)
     GenServer.stop(lexer_pid)

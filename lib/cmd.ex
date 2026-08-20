@@ -11,7 +11,7 @@ defmodule Elil.Cmd do
     # TODO: handle errors. Right now they are just ignored, because who cares, just read the source code.
     # debug is a no-op right now
     {parsed, argv, _errors} =
-      OptionParser.parse(argv, strict: [print_ast: :boolean, debug: :boolean])
+      OptionParser.parse(argv, strict: [print_ast: :boolean, print_file_path: :boolean, debug: :boolean])
 
     :ok = handle_options(parsed)
 
@@ -60,11 +60,11 @@ defmodule Elil.Cmd do
   end
 
   def get_option(key, default \\ nil) when is_binary(key) do
-    System.get_env(@internal_prefix<>key, default)
+    System.get_env(@internal_prefix <> key, default)
   end
 
   def get_option_bool(key, default \\ nil) when is_binary(key) do
-    case System.get_env(@internal_prefix<>key, default) do
+    case System.get_env(@internal_prefix <> key, default) do
       "true" -> true
       "false" -> false
       otherwise -> otherwise
