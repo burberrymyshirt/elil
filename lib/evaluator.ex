@@ -4,6 +4,55 @@ defmodule Elil.Evaluator do
   alias Elil.Lexer, as: Lexer
   alias Elil.Parser.Node, as: Node
 
+  defmodule Value do
+    @enforce_keys [:type]
+    defstruct [
+      :type,
+      :value
+    ]
+
+    defmodule Type do
+      @compile {:inline, int: 0, void: 0, str: 0}
+      def int(), do: :int
+      def void(), do: :void
+      def str(), do: :str
+    end
+
+    defimpl String.Chars, for: __MODULE__ do
+      def to_string(%Value{type: :void}) do
+        ""
+      end
+
+      def to_string(%Value{} = value) do
+        Kernel.to_string(value.value)
+      end
+    end
+
+    def new(value, wanted_type)
+
+    def new(_v, :void) do
+      struct!(Value, type: Type.void())
+    end
+
+    def new(v, :str) when not is_nil(v) do
+      struct!(Value, type: Type.str(), value: to_string(v))
+    end
+
+    def new(v, :int) when not is_nil(v) do
+      v =
+        case v do
+          v when is_integer(v) -> v
+          # TODO: handle more than just base 10
+          v when is_binary(v) -> Integer.parse(v, 10) |> elem(0)
+          # TODO: handle more than just base 10
+          v when is_list(v) -> Integer.parse(List.to_string(v), 10) |> elem(0)
+          v -> Elil.Logger.error_log_and_die("unable to parse value \"#{v}\" to an integer")
+        end
+
+      struct!(Value, type: Type.int(), value: v)
+    end
+  end
+
   defmodule Context do
     use GenServer
 
@@ -18,20 +67,14 @@ defmodule Elil.Evaluator do
     def pop_scope(pid), do: GenServer.call(pid, {:pop_scope})
 
     def put_let(pid, %Node{type: :let} = node) when is_pid(pid) do
-      # everything lives in a global namespace for now.
-      # @see global_namespace
       GenServer.call(pid, {:put_let, node})
     end
 
     def get_let(pid, %Node{type: :ident} = node) when is_pid(pid) do
-      # everything lives in a global namespace for now.
-      # @see gloabl_namespace
       get_let(pid, node.body)
     end
 
     def get_let(pid, name) when is_pid(pid) do
-      # everything lives in a global namespace for now.
-      # @see gloabl_namespace
       GenServer.call(pid, {:get_let, name})
     end
 
@@ -99,6 +142,7 @@ defmodule Elil.Evaluator do
   end
 
   defguard is_scope_type(type) when type in [:root, :scope]
+  defguard is_lit(type) when type in [:dqstr, :int]
 
   def eval(file) do
     # TODO: error handling
@@ -160,7 +204,7 @@ defmodule Elil.Evaluator do
     eval_expr(pid, node)
   end
 
-  defp eval_node(pid, %Node{type: :lit} = node) when is_pid(pid) do
+  defp eval_node(pid, %Node{type: type} = node) when is_pid(pid) and is_lit(type) do
     eval_lit(pid, node)
   end
 
@@ -175,14 +219,17 @@ defmodule Elil.Evaluator do
 
   defp eval_params(pid, %Node{type: type, body: nil} = node)
        when is_pid(pid) and is_scope_type(type) do
-    Enum.map(node.params, &eval_node(pid, &1))
+
+    node.params
+    |> Enum.map(&eval_node(pid, &1))
   end
 
   # TODO: could be merged with the eval_params/2 above, idk if it is actually important that the body is nil.
   #  I just wanna assert as much as possible right now. I don't know if we need named scopes in the future,
   #  but in that case I would like to keep the assert for now so I know where refactoring is needed.
   defp eval_params(pid, %Node{type: :let} = node) when is_pid(pid) do
-    Enum.map(node.params, &eval_node(pid, &1))
+    node.params
+    |> Enum.map(&eval_node(pid, &1))
   end
 
   defp eval_expr(pid, %Node{type: :expr} = node) when is_pid(pid) do
@@ -193,10 +240,6 @@ defmodule Elil.Evaluator do
     # TODO: add meta data from parser to report arity/variadic parameters
     #  Right now we just ignore parameters when there are more than the function needs
     case func do
-      "let" ->
-        todo("move keywords to separate eval function maybe? idk.")
-        todo("implement let bindings")
-
       "fn" ->
         todo("implement let bindings")
 
@@ -205,10 +248,14 @@ defmodule Elil.Evaluator do
           eval_node(pid, v)
           |> to_string()
           |> Integer.parse(10)
-          |> elem(0)
         end)
         |> Enum.reduce(0, fn
-          v, acc when is_integer(v) ->
+          {v, rem}, _acc when is_list(rem) and length(rem) > 0 ->
+            Elil.Logger.error_log_and_die(
+              "function add() expects only integers as arguments, got #{v}"
+            )
+
+          {v, _rem}, acc when is_integer(v) ->
             v + acc
 
           v, _acc ->
@@ -216,6 +263,7 @@ defmodule Elil.Evaluator do
               "function add() expects only integers as arguments, got #{v}"
             )
         end)
+        |> Value.new(Value.Type.int())
 
       "sub" ->
         Enum.map(args, fn
@@ -223,27 +271,38 @@ defmodule Elil.Evaluator do
             eval_node(pid, v)
             |> to_string()
             |> Integer.parse(10)
-            |> elem(0)
         end)
-        |> Enum.reduce(fn
-          v, acc when is_integer(v) ->
-            acc - v
+        |> Enum.reduce(0, fn
+          {v, rem}, _acc when is_list(rem) and length(rem) > 0 ->
+            Elil.Logger.error_log_and_die(
+              "function sub() expects only integers as arguments, got #{v}"
+            )
+
+          {v, _rem}, acc when is_integer(v) ->
+            v + acc
 
           v, _acc ->
             Elil.Logger.error_log_and_die(
-              "function add() expects only integers as arguments, got #{v}"
+              "function sub() expects only integers as arguments, got #{v}"
             )
         end)
+        |> Value.new(Value.Type.int())
 
       "echo" ->
-        Enum.map(args, &eval_node(pid, &1))
+        Enum.map(args, &eval_node(pid, &1)) |> dump()
+        |> Enum.map(&to_string/1)
         |> Enum.map(&IO.write/1)
+        |> Value.new(Value.Type.void())
 
       "eval" ->
+        # TODO: make it fail if more are given or something.
         [arg | _] = args
 
-        eval_node(pid, arg)
+        %Value{type: :str} = value = eval_node(pid, arg)
+        value
+        |> then(&(&1.value))
         |> eval()
+        |> Value.new(Value.Type.void())
 
       # TODO: add meta data from parser, so we can report line numbers
       #  @see logging errors in todo.txt
@@ -252,8 +311,13 @@ defmodule Elil.Evaluator do
     end
   end
 
-  defp eval_lit(pid, %Node{type: :lit} = node) when is_pid(pid) do
-    node.body
+  defp eval_lit(pid, %Node{type: :int} = node) when is_pid(pid) do
+    Value.new(node.body, Value.Type.int())
+  end
+
+  defp eval_lit(pid, %Node{type: :dqstr} = node) when is_pid(pid) do
+    # TODO: string interpolating
+    Value.new(node.body, Value.Type.str())
   end
 
   defp eval_let(pid, %Node{type: :let} = node) when is_pid(pid) do
@@ -278,7 +342,12 @@ defmodule Elil.Evaluator do
         Elil.Logger.error_log_and_die("variable \"#{to_string(node.body)}\" is undefined")
 
       {:ok, %Node{type: :let} = node} ->
-        eval_params(pid, node)
+        # TODO: not a real solution. eval_params returns a list, which worked by accident when I wasn't using Evaluator.Value.
+        # I can't really figure out why this is being passed in as a list. Before Value was introduced, it worked as expected...
+        # eval_lit returns a single element. And it is only sometimes. Only when let is popped it seems.
+        r = eval_params(pid, node)
+        1 = length(r)
+        List.pop_at(r, 0) |> elem(0)
     end
   end
 end

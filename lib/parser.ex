@@ -14,7 +14,8 @@ defmodule Elil.Parser do
       def root(), do: :root
       def expr(), do: :expr
       def scope(), do: :scope
-      def lit(), do: :lit
+      def dqstr(), do: :dqstr
+      def int(), do: :int
       def let(), do: :let
       def ident(), do: :ident
     end
@@ -27,8 +28,6 @@ defmodule Elil.Parser do
       current_node: nil
     ]
   end
-
-  defguard is_lit(v) when v in [:int, :dqstring]
 
   def parse(lexer_pid) when is_pid(lexer_pid) do
     {:ok, result} = parse_root_term_list(lexer_pid)
@@ -98,12 +97,20 @@ defmodule Elil.Parser do
         node = parse_kwd(pid)
         {:ok, node}
 
-      %Lexer{token: token} when is_lit(token) ->
+      %Lexer{token: :dqstr} ->
         lit = parse_lit(pid)
 
         # parse_lit can't shift more than it already is, cause then we will end up skipping tokens.
         Lexer.shift(pid)
-        node = %Node{type: Node.Type.lit(), body: lit}
+        node = %Node{type: Node.Type.dqstr(), body: lit}
+        {:ok, node}
+
+      %Lexer{token: :int} ->
+        lit = parse_lit(pid)
+
+        # parse_lit can't shift more than it already is, cause then we will end up skipping tokens.
+        Lexer.shift(pid)
+        node = %Node{type: Node.Type.int(), body: lit}
         {:ok, node}
 
       %Lexer{} = lexer ->
@@ -130,9 +137,13 @@ defmodule Elil.Parser do
         {:ok, term} = parse_term(pid)
         parse_params(pid, [term | acc])
 
-      %Lexer{token: token} when is_lit(token) ->
+      %Lexer{token: :dqstr} ->
         body = parse_lit(pid)
-        parse_params(pid, [%Node{type: Node.Type.lit(), body: body} | acc])
+        parse_params(pid, [%Node{type: Node.Type.dqstr(), body: body} | acc])
+
+      %Lexer{token: :int} ->
+        body = parse_lit(pid)
+        parse_params(pid, [%Node{type: Node.Type.int(), body: body} | acc])
 
       # Identifier is used as an argument to e.g. a function.
       %Lexer{token: :ident} ->
@@ -147,7 +158,11 @@ defmodule Elil.Parser do
 
   defp parse_lit(pid) when is_pid(pid) do
     case Lexer.current(pid) do
-      %Lexer{token: token} = lexer when is_lit(token) ->
+      %Lexer{token: :dqstr} = lexer ->
+        Lexer.shift(pid)
+        lexer.value
+
+      %Lexer{token: :int} = lexer ->
         Lexer.shift(pid)
         lexer.value
 

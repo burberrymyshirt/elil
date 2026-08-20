@@ -29,11 +29,12 @@ defmodule Elil.Lexer do
   @keywords ["let", "fn"]
 
   defmodule Token do
+    @compile {:inline, eof: 0, oparen: 0, cparen: 0, ident: 0, dqstr: 0, int: 0, cmt: 0, kwd: 0}
     def eof(), do: :eof
     def oparen(), do: :oparen
     def cparen(), do: :cparen
     def ident(), do: :ident
-    def dqstring(), do: :dqstring
+    def dqstr(), do: :dqstr
     def int(), do: :int
     def cmt(), do: :cmt
     def kwd(), do: :kwd
@@ -223,9 +224,9 @@ defmodule Elil.Lexer do
     end
   end
 
-  # dqstring
+  # dqstr
   defp do_lex(%Context{src_rest: <<?", rest::binary>>} = context) do
-    case parse_dqstring(rest) do
+    case parse_dqstr(rest) do
       # TODO: @see error logging paragraph in todo.txt. We are not able to provide location in file for these errors as of now
       {:error, msg} ->
         error_log_and_die(msg)
@@ -237,7 +238,7 @@ defmodule Elil.Lexer do
           chars_since_last_newline: count + 2
         ]
 
-        return_lex({Token.dqstring(), str}, context, context_updates)
+        return_lex({Token.dqstr(), str}, context, context_updates)
     end
   end
 
@@ -329,9 +330,9 @@ defmodule Elil.Lexer do
     |> then(&{&1, rest})
   end
 
-  defp parse_dqstring(str, result \\ [], count \\ 0)
+  defp parse_dqstr(str, result \\ [], count \\ 0)
 
-  defp parse_dqstring(str, result, count) do
+  defp parse_dqstr(str, result, count) do
     case str do
       <<?\n, _rest::binary>> ->
         {:error, "multi-line strings are not supported yet™"}
@@ -365,7 +366,7 @@ defmodule Elil.Lexer do
             _ -> {c, 1}
           end
 
-        parse_dqstring(rest, [c | result], count + c_count)
+        parse_dqstr(rest, [c | result], count + c_count)
 
       <<?", rest::binary>> ->
         result
@@ -374,7 +375,7 @@ defmodule Elil.Lexer do
         |> then(&{&1, rest, count})
 
       <<c, rest::binary>> ->
-        parse_dqstring(rest, [c | result], count + 1)
+        parse_dqstr(rest, [c | result], count + 1)
 
       _ ->
         {:error, "end of string not found"}
