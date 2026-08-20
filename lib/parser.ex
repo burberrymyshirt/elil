@@ -11,6 +11,7 @@ defmodule Elil.Parser do
     ]
 
     defmodule Type do
+      @compile {:inline, root: 0, expr: 0, scope: 0, dqstr: 0, int: 0, let: 0, ident: 0}
       def root(), do: :root
       def expr(), do: :expr
       def scope(), do: :scope
