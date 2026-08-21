@@ -11,7 +11,9 @@ defmodule Elil.Cmd do
     # TODO: handle errors. Right now they are just ignored, because who cares, just read the source code.
     # debug is a no-op right now
     {parsed, argv, _errors} =
-      OptionParser.parse(argv, strict: [print_ast: :boolean, print_file_path: :boolean, debug: :boolean])
+      OptionParser.parse(argv,
+        strict: [print_ast: :boolean, print_file_path: :boolean, debug: :boolean]
+      )
 
     :ok = handle_options(parsed)
 

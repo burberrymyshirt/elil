@@ -66,16 +66,20 @@ defmodule Elil.Evaluator do
 
     def pop_scope(pid), do: GenServer.call(pid, {:pop_scope})
 
-    def put_let(pid, %Node{type: :let} = node) when is_pid(pid) do
-      GenServer.call(pid, {:put_let, node})
+    def put_let(pid, var_name, %Value{type: type} = value)
+        when is_pid(pid) and is_binary(var_name) and type != :void do
+      # TODO: @see logging errors
+      # cannot assign void to anything, so we hard fail for now
+
+      GenServer.call(pid, {:put_let, var_name, value})
     end
 
     def get_let(pid, %Node{type: :ident} = node) when is_pid(pid) do
       get_let(pid, node.body)
     end
 
-    def get_let(pid, name) when is_pid(pid) do
-      GenServer.call(pid, {:get_let, name})
+    def get_let(pid, var_name) when is_pid(pid) when is_pid(var_name) do
+      GenServer.call(pid, {:get_let, var_name})
     end
 
     @impl true
@@ -97,17 +101,18 @@ defmodule Elil.Evaluator do
     end
 
     @impl true
-    def handle_call({:put_let, %Node{type: :let} = node}, _from, %Context{} = state) do
+    def handle_call({:put_let, var_name, %Value{type: type} = value}, _from, %Context{} = state)
+        when type != :void and is_binary(var_name) do
       # TODO: make local variables when we introduce functions
       [scope | rest_scopes] = state.scopes
 
-      case Map.has_key?(scope.lets, node.body) do
+      case Map.has_key?(scope.lets, var_name) do
         true ->
           {:reply, :already_exists, state}
 
         false ->
           # use the variable name as the key
-          lets = Map.put_new(scope.lets, node.body, node)
+          lets = Map.put_new(scope.lets, var_name, value)
           scope = struct!(scope, lets: lets)
           {:reply, :ok, struct!(state, scopes: [scope | rest_scopes])}
       end
@@ -120,8 +125,8 @@ defmodule Elil.Evaluator do
         {:undefined} ->
           {:reply, {:undefined}, state}
 
-        {:ok, %Node{} = node} ->
-          {:reply, {:ok, node}, state}
+        {:ok, %Value{} = value} ->
+          {:reply, {:ok, value}, state}
       end
     end
 
@@ -135,8 +140,8 @@ defmodule Elil.Evaluator do
             false -> do_get_let(name, rest_scopes)
           end
 
-        %Node{} = node ->
-          {:ok, node}
+        %Value{} = value ->
+          {:ok, value}
       end
     end
   end
@@ -162,9 +167,10 @@ defmodule Elil.Evaluator do
   end
 
   def eval(file, file_path) when is_binary(file) do
-    if (Elil.Cmd.get_option_bool("print_file_path")) do
-      IO.puts("Evaluating file: "<>file_path)
+    if Elil.Cmd.get_option_bool("print_file_path") do
+      IO.puts("Evaluating file: " <> file_path)
     end
+
     {:ok, lexer_pid} = GenServer.start_link(Lexer, {file_path, file}, hibernate_after: 100)
     {:ok, root_node} = Elil.Parser.parse(lexer_pid)
     GenServer.stop(lexer_pid)
@@ -222,7 +228,6 @@ defmodule Elil.Evaluator do
 
   defp eval_params(pid, %Node{type: type, body: nil} = node)
        when is_pid(pid) and is_scope_type(type) do
-
     node.params
     |> Enum.map(&eval_node(pid, &1))
   end
@@ -302,8 +307,9 @@ defmodule Elil.Evaluator do
         [arg | _] = args
 
         %Value{type: :str} = value = eval_node(pid, arg)
+
         value
-        |> then(&(&1.value))
+        |> then(& &1.value)
         |> eval()
         |> Value.new(Value.Type.void())
 
@@ -324,7 +330,12 @@ defmodule Elil.Evaluator do
   end
 
   defp eval_let(pid, %Node{type: :let} = node) when is_pid(pid) do
-    case Context.put_let(pid, node) do
+    # Hard assert for now. Only one value can be assigned to a variable.
+    1 = length(node.params)
+    [head | _] = node.params
+    %Value{} = value = eval_node(pid, head)
+
+    case Context.put_let(pid, node.body, value) do
       {:already_exists} ->
         # TODO: add meta data from parser, so we can report line numbers
         #  @see logging errors in todo.txt
@@ -344,13 +355,9 @@ defmodule Elil.Evaluator do
         #  @see logging errors in todo.txt
         Elil.Logger.error_log_and_die("variable \"#{to_string(node.body)}\" is undefined")
 
-      {:ok, %Node{type: :let} = node} ->
-        # TODO: not a real solution. eval_params returns a list, which worked by accident when I wasn't using Evaluator.Value.
-        # I can't really figure out why this is being passed in as a list. Before Value was introduced, it worked as expected...
-        # eval_lit returns a single element. And it is only sometimes. Only when let is popped it seems.
-        r = eval_params(pid, node)
-        1 = length(r)
-        List.pop_at(r, 0) |> elem(0)
+      # void cannot be a vairable, so hard assert
+      {:ok, %Value{type: type} = value} when type != :void ->
+        value
     end
   end
 end
