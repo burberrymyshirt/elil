@@ -12,10 +12,12 @@ defmodule Elil.Evaluator do
     ]
 
     defmodule Type do
-      @compile {:inline, int: 0, void: 0, str: 0}
+      @compile {:inline, int: 0, void: 0, str: 0, bool_false: 0, bool_true: 0}
       def int(), do: :int
       def void(), do: :void
       def str(), do: :str
+      def bool_true(), do: :str
+      def bool_false(), do: :str
     end
 
     defimpl String.Chars, for: __MODULE__ do
@@ -147,7 +149,7 @@ defmodule Elil.Evaluator do
   end
 
   defguard is_scope_type(type) when type in [:root, :scope]
-  defguard is_lit(type) when type in [:dqstr, :int]
+  defguard is_lit(type) when type in [:dqstr, :int, :bool_true, :bool_false]
 
   def eval(file) do
     # TODO: error handling
@@ -229,6 +231,12 @@ defmodule Elil.Evaluator do
   # an ident from the parser is expected to be a name of a variable or function.
   defp eval_node(pid, %Node{type: :ident} = node) when is_pid(pid) do
     eval_ident(pid, node)
+  end
+
+  # an ident from the parser is expected to be a name of a variable or function.
+  defp eval_node(pid, %Node{type: :cond_if} = node) when is_pid(pid) do
+    dump(node)
+    todo("eval_if")
   end
 
   defp eval_params(pid, %Node{type: type, body: nil} = node)
@@ -323,6 +331,14 @@ defmodule Elil.Evaluator do
       _ ->
         Elil.Logger.error_log_and_die("undefined function: \"#{func}\"")
     end
+  end
+
+  defp eval_lit(pid, %Node{type: :bool_true} = node) when is_pid(pid) do
+    Value.new(node.body, Value.Type.bool_true())
+  end
+
+  defp eval_lit(pid, %Node{type: :bool_false} = node) when is_pid(pid) do
+    Value.new(node.body, Value.Type.bool_false())
   end
 
   defp eval_lit(pid, %Node{type: :int} = node) when is_pid(pid) do

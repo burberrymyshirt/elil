@@ -11,7 +11,17 @@ defmodule Elil.Parser do
     ]
 
     defmodule Type do
-      @compile {:inline, root: 0, expr: 0, scope: 0, dqstr: 0, int: 0, let: 0, ident: 0}
+      @compile {:inline,
+                root: 0,
+                expr: 0,
+                scope: 0,
+                dqstr: 0,
+                int: 0,
+                let: 0,
+                ident: 0,
+                cond_if: 0,
+                bool_true: 0,
+                bool_false: 0}
       def root(), do: :root
       def expr(), do: :expr
       def scope(), do: :scope
@@ -19,6 +29,9 @@ defmodule Elil.Parser do
       def int(), do: :int
       def let(), do: :let
       def ident(), do: :ident
+      def cond_if(), do: :cond_if
+      def bool_true(), do: :bool_true
+      def bool_false(), do: :bool_false
     end
   end
 
@@ -98,6 +111,22 @@ defmodule Elil.Parser do
         node = parse_kwd(pid)
         {:ok, node}
 
+      %Lexer{token: :bool_true} ->
+        lit = parse_lit(pid)
+
+        # parse_lit can't shift more than it already is, cause then we will end up skipping tokens.
+        Lexer.shift(pid)
+        node = %Node{type: Node.Type.bool_true(), body: lit}
+        {:ok, node}
+
+      %Lexer{token: :bool_false} ->
+        lit = parse_lit(pid)
+
+        # parse_lit can't shift more than it already is, cause then we will end up skipping tokens.
+        Lexer.shift(pid)
+        node = %Node{type: Node.Type.bool_false(), body: lit}
+        {:ok, node}
+
       %Lexer{token: :dqstr} ->
         lit = parse_lit(pid)
 
@@ -146,6 +175,14 @@ defmodule Elil.Parser do
         body = parse_lit(pid)
         parse_params(pid, [%Node{type: Node.Type.int(), body: body} | acc])
 
+      %Lexer{token: :bool_true} ->
+        body = parse_lit(pid)
+        parse_params(pid, [%Node{type: Node.Type.bool_true(), body: body} | acc])
+
+      %Lexer{token: :bool_false} ->
+        body = parse_lit(pid)
+        parse_params(pid, [%Node{type: Node.Type.bool_false(), body: body} | acc])
+
       # Identifier is used as an argument to e.g. a function.
       %Lexer{token: :ident} ->
         node = struct!(Node, type: Node.Type.ident(), body: parse_ident(pid))
@@ -159,6 +196,14 @@ defmodule Elil.Parser do
 
   defp parse_lit(pid) when is_pid(pid) do
     case Lexer.current(pid) do
+      %Lexer{token: :bool_true} = lexer ->
+        Lexer.shift(pid)
+        lexer.value
+
+      %Lexer{token: :bool_false} = lexer ->
+        Lexer.shift(pid)
+        lexer.value
+
       %Lexer{token: :dqstr} = lexer ->
         Lexer.shift(pid)
         lexer.value
@@ -205,8 +250,31 @@ defmodule Elil.Parser do
       %Lexer{value: "fn"} ->
         todo("parse_fn kwd")
 
+      %Lexer{value: "if"} ->
+        %Lexer{token: :oparen} = Lexer.shift(pid)
+        Lexer.shift(pid)
+        {:ok, c} = parse_term(pid)
+        Lexer.shift(pid)
+        {:ok, t} = parse_term(pid)
+
+        e =
+          case Lexer.current(pid) do
+            %Lexer{token: :oparen} ->
+              Lexer.shift(pid)
+              parse_term(pid)
+              |> then(fn {:ok, e} -> e end)
+
+            _ ->
+              nil
+          end
+
+        # @see logging erros this just hard fails, it should probably have a nice message :)
+        %Lexer{token: :cparen} = Lexer.current(pid)
+        Lexer.shift(pid)
+        struct!(Node, type: Node.Type.cond_if(), body: c, params: [t, e])
+
       %Lexer{} = lexer ->
-        todo("unhandled keyword: #{Atom.to_string(lexer.token)}")
+        todo("unhandled keyword: \"#{lexer.value}\"")
     end
   end
 end

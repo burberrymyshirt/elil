@@ -26,10 +26,20 @@ defmodule Elil.Lexer do
     def current_row(%Context{total_newlines: nl}), do: nl + 1
   end
 
-  @keywords ["let", "fn"]
+  @keywords ["let", "fn", "if"]
 
   defmodule Token do
-    @compile {:inline, eof: 0, oparen: 0, cparen: 0, ident: 0, dqstr: 0, int: 0, cmt: 0, kwd: 0}
+    @compile {:inline,
+              eof: 0,
+              oparen: 0,
+              cparen: 0,
+              ident: 0,
+              dqstr: 0,
+              int: 0,
+              cmt: 0,
+              kwd: 0,
+              bool_true: 0,
+              bool_false: 0}
     def eof(), do: :eof
     def oparen(), do: :oparen
     def cparen(), do: :cparen
@@ -38,6 +48,8 @@ defmodule Elil.Lexer do
     def int(), do: :int
     def cmt(), do: :cmt
     def kwd(), do: :kwd
+    def bool_true(), do: :bool_true
+    def bool_false(), do: :bool_false
   end
 
   defmodule LexerState do
@@ -244,6 +256,28 @@ defmodule Elil.Lexer do
 
         return_lex({Token.dqstr(), str}, context, context_updates)
     end
+  end
+
+  defp do_lex(%Context{src_rest: <<?t, ?r, ?u, ?e, rest::binary>>} = context) do
+    value = "true"
+
+    context_updates = [
+      src_rest: rest,
+      chars_since_last_newline: context.chars_since_last_newline + String.length(value)
+    ]
+
+    return_lex({Token.bool_true(), value}, context, context_updates)
+  end
+
+  defp do_lex(%Context{src_rest: <<?f, ?a, ?l, ?s, ?e, rest::binary>>} = context) do
+    value = "false"
+
+    context_updates = [
+      src_rest: rest,
+      chars_since_last_newline: context.chars_since_last_newline + String.length(value)
+    ]
+
+    return_lex({Token.bool_false(), value}, context, context_updates)
   end
 
   # identifier base case

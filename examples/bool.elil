@@ -1,0 +1,6 @@
+(let cond true)
+
+(if (cond)
+    (echo"trueeee")
+    (echo"falzzzzee")
+)
