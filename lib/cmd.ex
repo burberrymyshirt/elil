@@ -12,7 +12,12 @@ defmodule Elil.Cmd do
     # debug is a no-op right now
     {parsed, argv, _errors} =
       OptionParser.parse(argv,
-        strict: [print_ast: :boolean, print_file_path: :boolean, debug: :boolean]
+        strict: [
+          print_ast: :boolean,
+          print_file_path: :boolean,
+          debug: :boolean,
+          print_lexer: :boolean
+        ]
       )
 
     :ok = handle_options(parsed)

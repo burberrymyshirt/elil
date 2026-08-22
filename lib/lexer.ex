@@ -56,17 +56,23 @@ defmodule Elil.Lexer do
     end
   end
 
-  def lex_entire_file(file, file_path) do
+  def lex_entire_file(file, file_path, cb \\ nil) do
     {:ok, pid} = GenServer.start_link(__MODULE__, {file_path, file}, hibernate_after: 100)
-    list = do_lex_entire_file(pid)
+    list = do_lex_entire_file(pid, cb, [])
     GenServer.stop(pid)
     list
   end
 
-  defp do_lex_entire_file(pid, result \\ []) when is_pid(pid) do
-    case shift(pid) do
+  defp do_lex_entire_file(pid, cb, result) when is_pid(pid) do
+    s = shift(pid)
+
+    if !is_nil(cb) and is_function(cb, 1) do
+      then(s, cb)
+    end
+
+    case s do
       %__MODULE__{token: :eof} -> Enum.reverse(result)
-      %__MODULE__{} = l -> do_lex_entire_file(pid, [l | result])
+      %__MODULE__{} = l -> do_lex_entire_file(pid, cb, [l | result])
     end
   end
 
@@ -104,12 +110,6 @@ defmodule Elil.Lexer do
     {:ok, %LexerState{file_path: file_path, context: context, current_token: nil}}
   end
 
-  # TODO: all of this shifting and get_current_token is a bit limiting.
-  #  I would like a read-forward buffer that is saved in the state, so we
-  #  can read multiple tokens without shifting. I feel like that would make
-  #  the parser api much more usable, when creating "expect" functions or
-  #  patterns, to better handle errors. In this case, shift would shift from
-  #  the stack first, and then start pulling from the stream again once empty.
   @impl true
   def handle_call({:shift_token, amount}, _from, %LexerState{} = lexer_state)
       when is_integer(amount) do

@@ -171,26 +171,31 @@ defmodule Elil.Evaluator do
       IO.puts("Evaluating file: " <> file_path)
     end
 
-    {:ok, lexer_pid} = GenServer.start_link(Lexer, {file_path, file}, hibernate_after: 100)
-    {:ok, root_node} = Elil.Parser.parse(lexer_pid)
-    GenServer.stop(lexer_pid)
-    %Node{type: :root} = root_node
-
-    if Elil.Cmd.get_option_bool("print_ast") do
-      IO.inspect(root_node)
+    if Elil.Cmd.get_option_bool("print_lexer") do
+      Lexer.lex_entire_file(file, file_path, &IO.inspect(&1))
+      :ok
     else
-      {:ok, context_pid} = GenServer.start_link(Context, [])
+      {:ok, lexer_pid} = GenServer.start_link(Lexer, {file_path, file}, hibernate_after: 100)
+      {:ok, root_node} = Elil.Parser.parse(lexer_pid)
+      GenServer.stop(lexer_pid)
+      %Node{type: :root} = root_node
 
-      # TODO: if we bubble errors up to the surface through returns, we can handle errors properly here.
-      #  I don't really wanna use exceptions. I feel like they might be a crutch for a poor recursive design.
-      #  Although that might be wrong and exceptions are just the way to go. Who knows.
+      if Elil.Cmd.get_option_bool("print_ast") do
+        IO.inspect(root_node)
+      else
+        {:ok, context_pid} = GenServer.start_link(Context, [])
 
-      do_eval(context_pid, root_node)
+        # TODO: if we bubble errors up to the surface through returns, we can handle errors properly here.
+        #  I don't really wanna use exceptions. I feel like they might be a crutch for a poor recursive design.
+        #  Although that might be wrong and exceptions are just the way to go. Who knows.
 
-      GenServer.stop(context_pid)
+        do_eval(context_pid, root_node)
+
+        GenServer.stop(context_pid)
+      end
+
+      :ok
     end
-
-    :ok
   end
 
   defp do_eval(pid, %Node{type: :root} = node) when is_pid(pid) do
