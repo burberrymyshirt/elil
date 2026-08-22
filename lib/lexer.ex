@@ -136,6 +136,10 @@ defmodule Elil.Lexer do
             when char in ?A..?z or
                    char in [?_, ?-, ??, ?æ, ?ø, ?å, ?Æ, ?Ø, ?Å]
 
+  defguardp is_token_delimiter(char)
+            when is_whitespace(char) or
+                   char in [?(, ?), ?"]
+
   defp do_lex(%Context{src_rest: rest} = context) when rest === "" do
     value = ""
     context_updates = []
@@ -289,7 +293,7 @@ defmodule Elil.Lexer do
   defp do_parse_identifier(context, result \\ [])
 
   defp do_parse_identifier(<<char, _rest::binary>>, _result)
-       when not valid_identifier_char(char) and not is_whitespace(char) do
+       when not valid_identifier_char(char) and not is_token_delimiter(char) do
     {:error, "unknown identifier char: \"#{to_string([char])}\""}
   end
 
