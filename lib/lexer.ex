@@ -244,7 +244,19 @@ defmodule Elil.Lexer do
 
   # identifier base case
   defp do_lex(%Context{} = context) do
-    {{value, type}, rest} = parse_identifier(context)
+    {value, type, rest} =
+      case parse_identifier(context) do
+        {:ok, {value, type}, rest} ->
+          {value, type, rest}
+
+        {:error, msg} ->
+          # TODO: @see logging errors we need the filepath provided in here. We have it in lexer state.
+          error_log_and_die(
+            "no filepath found",
+            {context.total_newlines, context.chars_since_last_newline},
+            msg
+          )
+      end
 
     context_updates = [
       src_rest: rest,
@@ -254,6 +266,8 @@ defmodule Elil.Lexer do
     return_lex({type, value}, context, context_updates)
   end
 
+  # Used in the whitespace and comment cases, where we still want to update
+  # the context with row and col, but not return an actual token.
   defp continue_lex(%Context{} = context, context_updates) when is_list(context_updates) do
     do_lex(struct!(context, context_updates))
   end
@@ -270,15 +284,20 @@ defmodule Elil.Lexer do
     {:ok, struct!(context, context_updates), lexer}
   end
 
-  defp parse_identifier(context, result \\ [])
+  defp parse_identifier(%Context{src_rest: rest}), do: do_parse_identifier(rest)
 
-  defp parse_identifier(%Context{src_rest: rest}, result), do: parse_identifier(rest, result)
+  defp do_parse_identifier(context, result \\ [])
 
-  defp parse_identifier(<<char, rest::binary>>, result) when valid_identifier_char(char) do
-    parse_identifier(rest, [char | result])
+  defp do_parse_identifier(<<char, _rest::binary>>, _result)
+       when not valid_identifier_char(char) and not is_whitespace(char) do
+    {:error, "unknown identifier char: \"#{to_string([char])}\""}
   end
 
-  defp parse_identifier(rest, result) do
+  defp do_parse_identifier(<<char, rest::binary>>, result) when valid_identifier_char(char) do
+    do_parse_identifier(rest, [char | result])
+  end
+
+  defp do_parse_identifier(rest, result) do
     result =
       result
       |> Enum.reverse()
@@ -291,7 +310,7 @@ defmodule Elil.Lexer do
         Token.ident()
       end
 
-    {{result, type}, rest}
+    {:ok, {result, type}, rest}
   end
 
   defp parse_integer(context, result \\ [])

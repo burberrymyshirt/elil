@@ -59,4 +59,10 @@ defmodule Elil.Utils do
       unquote(char) in ?0..?9
     end
   end
+
+  defmacro is_whitespace(char) do
+    quote do
+      unquote(char) in [?\t, ?\r, ?\s, ?\t]
+    end
+  end
 end
