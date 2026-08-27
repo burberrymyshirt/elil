@@ -240,14 +240,16 @@ defmodule Elil.Evaluator do
   # an ident from the parser is expected to be a name of a variable or function.
   defp eval_node(pid, %Node{type: :cond_if} = node) when is_pid(pid) do
     %Value{} = evaled_cond = eval_node(pid, node.body)
+
     case evaled_cond.type do
       t when t === :bool_true ->
         Keyword.get(node.params, :then)
-        |> then(&(eval_node(pid, &1)))
+        |> then(&eval_node(pid, &1))
 
       t when t === :bool_false ->
         then = Keyword.get(node.params, :else)
-        if (is_nil(then)) do
+
+        if is_nil(then) do
           struct!(Value, type: Value.Type.void())
         else
           eval_node(pid, then)
@@ -255,7 +257,9 @@ defmodule Elil.Evaluator do
 
       a when is_atom(a) ->
         # @see logging erros
-        Elil.Logger.error_log_and_die("expected boolean when calling if-statement. Got type: \":#{Atom.to_string(a)}\"")
+        Elil.Logger.error_log_and_die(
+          "expected boolean when calling if-statement. Got type: \":#{Atom.to_string(a)}\""
+        )
     end
   end
 
@@ -349,7 +353,9 @@ defmodule Elil.Evaluator do
       # TODO: add meta data from parser, so we can report line numbers
       #  @see logging errors in todo.txt
       _ ->
-        Elil.Logger.error_log_and_die("symbol \"#{func}\" is not defined as either a function or variable")
+        Elil.Logger.error_log_and_die(
+          "symbol \"#{func}\" is not defined as either a function or variable"
+        )
     end
   end
 
@@ -394,9 +400,10 @@ defmodule Elil.Evaluator do
     case Context.get_let(pid, node) do
       {:undefined} ->
         eval_expr(pid, node)
-        # TODO: add meta data from parser, so we can report line numbers
-        #  @see logging errors in todo.txt
-        # Elil.Logger.error_log_and_die("variable \"#{to_string(node.body)}\" is undefined")
+
+      # TODO: add meta data from parser, so we can report line numbers
+      #  @see logging errors in todo.txt
+      # Elil.Logger.error_log_and_die("variable \"#{to_string(node.body)}\" is undefined")
 
       # void cannot be a vairable, so hard assert
       {:ok, %Value{type: type} = value} when type != :void ->
