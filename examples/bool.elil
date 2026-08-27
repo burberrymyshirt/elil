@@ -1,6 +1,9 @@
-(let cond true)
+(let cond false)
 
-(if (cond)
-    (echo"trueeee")
-    (echo"falzzzzee")
-)
+; (let a
+  (if (cond)
+    (echo "trueeee" "\n")
+    (echo "falzzzzee" "\n"))
+; )
+
+; (echo a)

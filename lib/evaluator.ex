@@ -16,8 +16,8 @@ defmodule Elil.Evaluator do
       def int(), do: :int
       def void(), do: :void
       def str(), do: :str
-      def bool_true(), do: :str
-      def bool_false(), do: :str
+      def bool_true(), do: :bool_true
+      def bool_false(), do: :bool_false
     end
 
     defimpl String.Chars, for: __MODULE__ do
@@ -34,6 +34,14 @@ defmodule Elil.Evaluator do
 
     def new(_v, :void) do
       struct!(Value, type: Type.void())
+    end
+
+    def new(_v, :bool_true) do
+      struct!(Value, type: Type.bool_true(), value: 1)
+    end
+
+    def new(_v, :bool_false) do
+      struct!(Value, type: Type.bool_false(), value: 0)
     end
 
     def new(v, :str) when not is_nil(v) do
@@ -216,10 +224,6 @@ defmodule Elil.Evaluator do
     {:ok} = Context.pop_scope(pid)
   end
 
-  defp eval_node(pid, %Node{type: :expr} = node) when is_pid(pid) do
-    eval_expr(pid, node)
-  end
-
   defp eval_node(pid, %Node{type: type} = node) when is_pid(pid) and is_lit(type) do
     eval_lit(pid, node)
   end
@@ -235,8 +239,24 @@ defmodule Elil.Evaluator do
 
   # an ident from the parser is expected to be a name of a variable or function.
   defp eval_node(pid, %Node{type: :cond_if} = node) when is_pid(pid) do
-    dump(node)
-    todo("eval_if")
+    %Value{} = evaled_cond = eval_node(pid, node.body)
+    case evaled_cond.type do
+      t when t === :bool_true ->
+        Keyword.get(node.params, :then)
+        |> then(&(eval_node(pid, &1)))
+
+      t when t === :bool_false ->
+        then = Keyword.get(node.params, :else)
+        if (is_nil(then)) do
+          struct!(Value, type: Value.Type.void())
+        else
+          eval_node(pid, then)
+        end
+
+      a when is_atom(a) ->
+        # @see logging erros
+        Elil.Logger.error_log_and_die("expected boolean when calling if-statement. Got type: \":#{Atom.to_string(a)}\"")
+    end
   end
 
   defp eval_params(pid, %Node{type: type, body: nil} = node)
@@ -253,7 +273,7 @@ defmodule Elil.Evaluator do
     |> Enum.map(&eval_node(pid, &1))
   end
 
-  defp eval_expr(pid, %Node{type: :expr} = node) when is_pid(pid) do
+  defp eval_expr(pid, %Node{type: :ident} = node) when is_pid(pid) do
     eval_func(pid, node.body, node.params)
   end
 
@@ -329,7 +349,7 @@ defmodule Elil.Evaluator do
       # TODO: add meta data from parser, so we can report line numbers
       #  @see logging errors in todo.txt
       _ ->
-        Elil.Logger.error_log_and_die("undefined function: \"#{func}\"")
+        Elil.Logger.error_log_and_die("symbol \"#{func}\" is not defined as either a function or variable")
     end
   end
 
@@ -370,11 +390,13 @@ defmodule Elil.Evaluator do
   end
 
   defp eval_ident(pid, %Node{type: :ident} = node) when is_pid(pid) do
+    # TODO: figure out when we need to do a function lookup vs a variable lookup
     case Context.get_let(pid, node) do
       {:undefined} ->
+        eval_expr(pid, node)
         # TODO: add meta data from parser, so we can report line numbers
         #  @see logging errors in todo.txt
-        Elil.Logger.error_log_and_die("variable \"#{to_string(node.body)}\" is undefined")
+        # Elil.Logger.error_log_and_die("variable \"#{to_string(node.body)}\" is undefined")
 
       # void cannot be a vairable, so hard assert
       {:ok, %Value{type: type} = value} when type != :void ->

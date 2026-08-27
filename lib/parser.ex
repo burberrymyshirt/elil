@@ -13,7 +13,6 @@ defmodule Elil.Parser do
     defmodule Type do
       @compile {:inline,
                 root: 0,
-                expr: 0,
                 scope: 0,
                 dqstr: 0,
                 int: 0,
@@ -23,7 +22,6 @@ defmodule Elil.Parser do
                 bool_true: 0,
                 bool_false: 0}
       def root(), do: :root
-      def expr(), do: :expr
       def scope(), do: :scope
       def dqstr(), do: :dqstr
       def int(), do: :int
@@ -104,7 +102,7 @@ defmodule Elil.Parser do
       %Lexer{token: :ident} ->
         ident = parse_ident(pid)
         {:ok, params} = parse_params(pid)
-        node = struct!(%Node{}, type: Node.Type.expr(), body: ident, params: params)
+        node = struct!(Node, type: Node.Type.ident(), body: ident, params: params)
         {:ok, node}
 
       %Lexer{token: :kwd} ->
@@ -261,6 +259,7 @@ defmodule Elil.Parser do
           case Lexer.current(pid) do
             %Lexer{token: :oparen} ->
               Lexer.shift(pid)
+
               parse_term(pid)
               |> then(fn {:ok, e} -> e end)
 
@@ -271,7 +270,7 @@ defmodule Elil.Parser do
         # @see logging erros this just hard fails, it should probably have a nice message :)
         %Lexer{token: :cparen} = Lexer.current(pid)
         Lexer.shift(pid)
-        struct!(Node, type: Node.Type.cond_if(), body: c, params: [t, e])
+        struct!(Node, type: Node.Type.cond_if(), body: c, params: [then: t, else: e])
 
       %Lexer{} = lexer ->
         todo("unhandled keyword: \"#{lexer.value}\"")
