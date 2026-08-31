@@ -12,10 +12,11 @@ defmodule Elil.Evaluator do
     ]
 
     defmodule Type do
-      @compile {:inline, int: 0, void: 0, str: 0, bool_false: 0, bool_true: 0}
+      @compile {:inline, int: 0, void: 0, str: 0, bool_false: 0, bool_true: 0, func: 0}
       def int(), do: :int
       def void(), do: :void
       def str(), do: :str
+      def func(), do: :func
       def bool_true(), do: :bool_true
       def bool_false(), do: :bool_false
     end
@@ -48,6 +49,11 @@ defmodule Elil.Evaluator do
       struct!(Value, type: Type.str(), value: to_string(v))
     end
 
+    def new(v, :func) when not is_nil(v) when is_list(v) do
+      # Assert v is a list for now, as that is how it is parsed.
+      struct!(Value, type: Type.func(), value: v)
+    end
+
     def new(v, :int) when not is_nil(v) do
       v =
         case v do
@@ -56,6 +62,7 @@ defmodule Elil.Evaluator do
           v when is_binary(v) -> Integer.parse(v, 10) |> elem(0)
           # TODO: handle more than just base 10
           v when is_list(v) -> Integer.parse(List.to_string(v), 10) |> elem(0)
+          # @see logging errors
           v -> Elil.Logger.error_log_and_die("unable to parse value \"#{v}\" to an integer")
         end
 
@@ -67,7 +74,7 @@ defmodule Elil.Evaluator do
     use GenServer
 
     defmodule Scope do
-      defstruct lets: %{}
+      defstruct symbols: %{}
     end
 
     defstruct scopes: []
@@ -76,20 +83,20 @@ defmodule Elil.Evaluator do
 
     def pop_scope(pid), do: GenServer.call(pid, {:pop_scope})
 
-    def put_let(pid, var_name, %Value{type: type} = value)
+    def put_symbol(pid, var_name, %Value{type: type} = value)
         when is_pid(pid) and is_binary(var_name) and type != :void do
       # TODO: @see logging errors
       # cannot assign void to anything, so we hard fail for now
 
-      GenServer.call(pid, {:put_let, var_name, value})
+      GenServer.call(pid, {:put_symbol, var_name, value})
     end
 
-    def get_let(pid, %Node{type: :ident} = node) when is_pid(pid) do
-      get_let(pid, node.body)
+    def get_symbol(pid, %Node{type: :ident} = node) when is_pid(pid) do
+      get_symbol(pid, node.body)
     end
 
-    def get_let(pid, var_name) when is_pid(pid) when is_pid(var_name) do
-      GenServer.call(pid, {:get_let, var_name})
+    def get_symbol(pid, var_name) when is_pid(pid) when is_pid(var_name) do
+      GenServer.call(pid, {:get_symbol, var_name})
     end
 
     @impl true
@@ -111,27 +118,27 @@ defmodule Elil.Evaluator do
     end
 
     @impl true
-    def handle_call({:put_let, var_name, %Value{type: type} = value}, _from, %Context{} = state)
+    def handle_call({:put_symbol, var_name, %Value{type: type} = value}, _from, %Context{} = state)
         when type != :void and is_binary(var_name) do
       # TODO: make local variables when we introduce functions
       [scope | rest_scopes] = state.scopes
 
-      case Map.has_key?(scope.lets, var_name) do
+      case Map.has_key?(scope.symbols, var_name) do
         true ->
           {:reply, :already_exists, state}
 
         false ->
           # use the variable name as the key
-          lets = Map.put_new(scope.lets, var_name, value)
-          scope = struct!(scope, lets: lets)
+          symbols = Map.put_new(scope.symbols, var_name, value)
+          scope = struct!(scope, symbols: symbols)
           {:reply, :ok, struct!(state, scopes: [scope | rest_scopes])}
       end
     end
 
     @impl true
-    def handle_call({:get_let, name}, _from, %Context{} = state) do
+    def handle_call({:get_symbol, name}, _from, %Context{} = state) do
       # TODO: make local variables when we introduce functions
-      case do_get_let(name, state.scopes) do
+      case do_get_symbol(name, state.scopes) do
         {:undefined} ->
           {:reply, {:undefined}, state}
 
@@ -140,14 +147,14 @@ defmodule Elil.Evaluator do
       end
     end
 
-    defp do_get_let(name, scopes) when is_binary(name) and is_list(scopes) do
+    defp do_get_symbol(name, scopes) when is_binary(name) and is_list(scopes) do
       [scope | rest_scopes] = scopes
 
-      case Map.get(scope.lets, name) do
+      case Map.get(scope.symbols, name) do
         nil ->
           case 0 === length(rest_scopes) do
             true -> {:undefined}
-            false -> do_get_let(name, rest_scopes)
+            false -> do_get_symbol(name, rest_scopes)
           end
 
         %Value{} = value ->
@@ -230,6 +237,10 @@ defmodule Elil.Evaluator do
 
   defp eval_node(pid, %Node{type: :let} = node) when is_pid(pid) do
     eval_let(pid, node)
+  end
+
+  defp eval_node(pid, %Node{type: :deffn} = node) when is_pid(pid) do
+    eval_deffn(pid, node)
   end
 
   # an ident from the parser is expected to be a name of a variable or function.
@@ -376,18 +387,37 @@ defmodule Elil.Evaluator do
     Value.new(node.body, Value.Type.str())
   end
 
+  defp eval_deffn(pid, %Node{type: :deffn} = node) when is_pid(pid) do
+
+    # NOTE: this code looks a lot like eval_let. Especially since we use the same namespace for deffn and let
+
+    value = Value.new(node.params, Value.Type.func())
+
+    case Context.put_symbol(pid, node.body, value) do
+      {:already_exists} ->
+        # TODO: add meta data from parser, so we can report line numbers
+        #  @see logging errors in todo.txt
+        Elil.Logger.error_log_and_die(
+          "symbol \"#{to_string(node.body)}\" has already been previously defined"
+        )
+
+      _ ->
+        {:ok}
+    end
+  end
+
   defp eval_let(pid, %Node{type: :let} = node) when is_pid(pid) do
     # Hard assert for now. Only one value can be assigned to a variable.
     1 = length(node.params)
     [head | _] = node.params
     %Value{} = value = eval_node(pid, head)
 
-    case Context.put_let(pid, node.body, value) do
+    case Context.put_symbol(pid, node.body, value) do
       {:already_exists} ->
         # TODO: add meta data from parser, so we can report line numbers
         #  @see logging errors in todo.txt
         Elil.Logger.error_log_and_die(
-          "variable \"#{to_string(node.body)}\" has already been previously defined"
+          "symbol \"#{to_string(node.body)}\" has already been previously defined"
         )
 
       _ ->
@@ -397,13 +427,16 @@ defmodule Elil.Evaluator do
 
   defp eval_ident(pid, %Node{type: :ident} = node) when is_pid(pid) do
     # TODO: figure out when we need to do a function lookup vs a variable lookup
-    case Context.get_let(pid, node) do
+    case Context.get_symbol(pid, node) do
       {:undefined} ->
         eval_expr(pid, node)
 
       # TODO: add meta data from parser, so we can report line numbers
       #  @see logging errors in todo.txt
       # Elil.Logger.error_log_and_die("variable \"#{to_string(node.body)}\" is undefined")
+
+      {:ok, %Value{type: :func} = _value} ->
+        todo("evaluate function call")
 
       # void cannot be a vairable, so hard assert
       {:ok, %Value{type: type} = value} when type != :void ->

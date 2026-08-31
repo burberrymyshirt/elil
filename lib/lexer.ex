@@ -26,7 +26,7 @@ defmodule Elil.Lexer do
     def current_row(%Context{total_newlines: nl}), do: nl + 1
   end
 
-  @keywords ["let", "fn", "if"]
+  @keywords ["let", "deffn", "if"]
 
   defmodule Token do
     @compile {:inline,

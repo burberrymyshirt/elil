@@ -18,6 +18,7 @@ defmodule Elil.Parser do
                 int: 0,
                 let: 0,
                 ident: 0,
+                deffn: 0,
                 cond_if: 0,
                 bool_true: 0,
                 bool_false: 0}
@@ -27,6 +28,7 @@ defmodule Elil.Parser do
       def int(), do: :int
       def let(), do: :let
       def ident(), do: :ident
+      def deffn(), do: :deffn
       def cond_if(), do: :cond_if
       def bool_true(), do: :bool_true
       def bool_false(), do: :bool_false
@@ -42,8 +44,8 @@ defmodule Elil.Parser do
   end
 
   def parse(lexer_pid) when is_pid(lexer_pid) do
-    {:ok, result} = parse_root_term_list(lexer_pid)
-    {:ok, %Node{type: Node.Type.root(), params: result}}
+    {:ok, list} = parse_root_term_list(lexer_pid)
+    {:ok, %Node{type: Node.Type.root(), params: list}}
   end
 
   defp parse_root_term_list(pid, acc \\ []) when is_pid(pid) and is_list(acc) do
@@ -65,12 +67,15 @@ defmodule Elil.Parser do
       %Lexer{token: :eof} ->
         {:ok, Enum.reverse(acc)}
 
+      # %Lexer{token: :cparen} = lexer ->
+      #   Elil.Logger.error_log_and_die("@see logging errors", lexer, "unexpected closing parenthesis encountered")
+
       %Lexer{token: :oparen} ->
         case Lexer.shift(pid) do
           # handle nested scopes
           %Lexer{token: :oparen} ->
             {:ok, list} = parse_scope_term_list(pid)
-            node = struct!(%Node{}, type: Node.Type.scope(), params: list)
+            node = struct!(Node, type: Node.Type.scope(), params: list)
             parse_root_term_list(pid, [node | acc])
 
           # handle standalone terms
@@ -84,7 +89,7 @@ defmodule Elil.Parser do
   defp parse_scope_term_list(pid, acc \\ []) when is_pid(pid) and is_list(acc) do
     case Lexer.current(pid) do
       %Lexer{token: :cparen} ->
-        Lexer.shift(pid)
+        Lexer.shift(pid) 
         {:ok, Enum.reverse(acc)}
 
       %Lexer{token: :oparen} ->
@@ -93,6 +98,11 @@ defmodule Elil.Parser do
           %Lexer{token: token} when token in [:ident, :kwd] ->
             {:ok, term} = parse_term(pid)
             parse_scope_term_list(pid, [term | acc])
+
+          %Lexer{token: :oparen}  ->
+            {:ok, list} = parse_scope_term_list(pid)
+            parse_scope_term_list(pid, [list | acc])
+
         end
     end
   end
@@ -219,6 +229,23 @@ defmodule Elil.Parser do
     end
   end
 
+  defp parse_args(pid, acc \\ []) when is_pid(pid) do
+    :ok = expect(Lexer.current(pid), :oparen)
+    Lexer.shift(pid)
+
+    case Lexer.current(pid) do
+      %Lexer{token: :cparen} ->
+        Lexer.shift(pid)
+        {:ok, Enum.reverse(acc)}
+
+      lexer ->
+        :ok = expect(lexer, :ident)
+        ident = parse_ident(pid)
+        node = struct!(Node, type: Node.Type.ident(), body: ident)
+        parse_args(pid, [node | acc])
+    end
+  end
+
   defp parse_kwd(pid) when is_pid(pid) do
     # TODO: maybe the pattern here should be more like parse_ident, where it simply parses the value
     #  instead of parsing the entire node. It makes for an inconsitent API, but it also consolidates
@@ -245,8 +272,23 @@ defmodule Elil.Parser do
             )
         end
 
-      %Lexer{value: "fn"} ->
-        todo("parse_fn kwd")
+      %Lexer{value: "deffn"} ->
+        Lexer.shift(pid)
+        fn_name = parse_ident(pid)
+
+        # hard assert for now, could become less strict e.g. for functions that take no arguments.
+        %Lexer{token: :oparen} = Lexer.current(pid)
+        {:ok, args} = parse_args(pid)
+
+        %Lexer{token: :oparen} = Lexer.current(pid)
+        Lexer.shift(pid)
+        {:ok, body} = parse_scope_term_list(pid)
+          |> then(&({elem(&1, 0), struct!(Node, type: Node.Type.scope(), params: elem(&1, 1))}))
+
+        Lexer.shift(pid)
+
+        params = [args: args, fn_body: body]
+        struct!(Node, type: Node.Type.deffn(), body: fn_name, params: params)
 
       %Lexer{value: "if"} ->
         %Lexer{token: :oparen} = Lexer.shift(pid)
@@ -274,6 +316,19 @@ defmodule Elil.Parser do
 
       %Lexer{} = lexer ->
         todo("unhandled keyword: \"#{lexer.value}\"")
+    end
+  end
+
+  defp expect(%Lexer{} = lexer, expected_token) when is_atom(expected_token) do
+    case lexer.token do
+      ^expected_token ->
+        :ok
+
+      # TODO: @see logging errors
+      _ ->
+        Elil.Logger.error_log_and_die(
+          "expected \":#{Atom.to_string(expected_token)}\", but got \":#{Atom.to_string(lexer.token)}\""
+        )
     end
   end
 end

@@ -1,0 +1,15 @@
+
+( ; define a new function
+    (echo "called from function" "\n")
+    (echo "echo2" "\n")
+    )
+
+(deffn asdf () ( ; define a new function
+    (echo "called from function" "\n")
+    (echo "echo2" "\n")
+    )
+)
+
+(echo "called from global scope""\n")
+
+(asdf) ; invoke function
