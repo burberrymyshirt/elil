@@ -52,6 +52,8 @@ Todos and wants
       (echo "value of asdf: \"" asdf "\"\n")) ; this should also be able to print whatever the let binding introduced above
       ```
 
+[] Implement a debugging system, as right now it is kind of difficult to debug the lexer and parser an allat
+
 --- Later on down the line
 [] with statements when nested cases are used. They just seem kind of confusing, so not touching for now.
    nested cases are very readable and work fine, but are just pretty bloated.
@@ -63,6 +65,14 @@ Todos and wants
    Doesn't necessarily have anything to do with namespaces being nice, but whatever. Dual pass could make global issues easier to debug I guess.
    Things also don't go out of context once out of scope. This is the biggest issue as of right now, as you won't be able to reuse names ever.
    @see global_namespace
+
+[] I would very much like some kind of plugin system for this language, so my own DSLs can be implemented on top of this.
+   That means creating some sort of Behaviour interface and then "link" with it from the Elil interpreter and extend the interpreter via that.
+   And by interpreter, I mean having different Behaviours for the lexer, parser and evaluator to hook into.
+   We could introduce specific keywords with specific rules and maybe even operators or something.
+   idk how useful it will be, but I think it would be a kind of sick idea to play with.
+
+[] Go through all TODOs in the code :D
 
 --- ideas for projects using Elil
 - Postman collection json parser, that transforms to raw curl calls in structured directories, so I don't have to use that garbage anymore.
