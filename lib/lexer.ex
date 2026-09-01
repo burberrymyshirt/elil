@@ -38,6 +38,7 @@ defmodule Elil.Lexer do
               int: 0,
               cmt: 0,
               kwd: 0,
+              colon: 0,
               bool_true: 0,
               bool_false: 0}
     def eof(), do: :eof
@@ -48,6 +49,7 @@ defmodule Elil.Lexer do
     def int(), do: :int
     def cmt(), do: :cmt
     def kwd(), do: :kwd
+    def colon(), do: :colon
     def bool_true(), do: :bool_true
     def bool_false(), do: :bool_false
   end
@@ -150,7 +152,7 @@ defmodule Elil.Lexer do
 
   defguardp is_token_delimiter(char)
             when is_whitespace(char) or
-                   char in [?(, ?), ?"]
+                   char in [?(, ?), ?", ?:]
 
   defp do_lex(%Context{src_rest: rest} = context) when rest === "" do
     value = ""
@@ -256,6 +258,17 @@ defmodule Elil.Lexer do
 
         return_lex({Token.dqstr(), str}, context, context_updates)
     end
+  end
+
+  defp do_lex(%Context{src_rest: <<?:, rest::binary>>} = context) do
+    value = ":"
+
+    context_updates = [
+      src_rest: rest,
+      chars_since_last_newline: context.chars_since_last_newline + 1
+    ]
+
+    return_lex({Token.colon(), value}, context, context_updates)
   end
 
   defp do_lex(%Context{src_rest: <<?t, ?r, ?u, ?e, rest::binary>>} = context) do

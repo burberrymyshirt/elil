@@ -43,6 +43,13 @@ defmodule Elil.Parser do
     ]
   end
 
+  # TODO: should be contained in one place. Types are also located in the evaluator.
+  #  Also I don't know how we should handle users defining their own types. So this is temp only.
+  #  Maybe the evaluator should just handle validating types i guess.
+  @elil_types [:string, :int, :func, :mixed]
+
+  defguardp is_valid_type(t) when is_atom(t) and t in @elil_types
+
   def parse(lexer_pid) when is_pid(lexer_pid) do
     {:ok, list} = parse_root_term_list(lexer_pid)
     {:ok, %Node{type: Node.Type.root(), params: list}}
@@ -60,7 +67,7 @@ defmodule Elil.Parser do
             Elil.Logger.error_log_and_die(
               Lexer.get_file_path(pid),
               lexer,
-              "expected oparen, but got: :#{Atom.to_string(lexer.token)}"
+              "expected \":oparen\", but got: :#{Atom.to_string(lexer.token)}"
             )
         end
 
@@ -89,7 +96,7 @@ defmodule Elil.Parser do
   defp parse_scope_term_list(pid, acc \\ []) when is_pid(pid) and is_list(acc) do
     case Lexer.current(pid) do
       %Lexer{token: :cparen} ->
-        Lexer.shift(pid) 
+        Lexer.shift(pid)
         {:ok, Enum.reverse(acc)}
 
       %Lexer{token: :oparen} ->
@@ -99,10 +106,9 @@ defmodule Elil.Parser do
             {:ok, term} = parse_term(pid)
             parse_scope_term_list(pid, [term | acc])
 
-          %Lexer{token: :oparen}  ->
+          %Lexer{token: :oparen} ->
             {:ok, list} = parse_scope_term_list(pid)
             parse_scope_term_list(pid, [list | acc])
-
         end
     end
   end
@@ -229,20 +235,46 @@ defmodule Elil.Parser do
     end
   end
 
-  defp parse_args(pid, acc \\ []) when is_pid(pid) do
-    :ok = expect(Lexer.current(pid), :oparen)
+  defp parse_args(pid) when is_pid(pid) do
+    # hard assert for now, could become less strict e.g. for functions that take no arguments.
+    :ok = expect_token(Lexer.current(pid), :oparen)
     Lexer.shift(pid)
+    do_parse_args(pid)
+  end
 
+  defp do_parse_args(pid, acc \\ []) do
     case Lexer.current(pid) do
       %Lexer{token: :cparen} ->
         Lexer.shift(pid)
         {:ok, Enum.reverse(acc)}
 
       lexer ->
-        :ok = expect(lexer, :ident)
+        :ok = expect_token(lexer, :ident)
         ident = parse_ident(pid)
-        node = struct!(Node, type: Node.Type.ident(), body: ident)
-        parse_args(pid, [node | acc])
+        %Lexer{} = current = Lexer.current(pid)
+        :ok = expect_token(current, [:colon, :ident, :cparen])
+
+        node =
+          case current do
+            %Lexer{token: :colon} ->
+              %Lexer{} = type = Lexer.shift(pid)
+
+              # TODO: should probably happen in the evaluator as we can't know the type here for sure. in the case where users get to define their own.
+              :ok = expect_type(type)
+              type_value = parse_ident(pid)
+
+              struct!(Node,
+                type: Node.Type.ident(),
+                body: ident,
+                params: [type: String.to_atom(type_value)]
+              )
+
+            # validated by previous expect
+            _ ->
+              struct!(Node, type: Node.Type.ident(), body: ident, params: [type: :mixed])
+          end
+
+        do_parse_args(pid, [node | acc])
     end
   end
 
@@ -276,14 +308,14 @@ defmodule Elil.Parser do
         Lexer.shift(pid)
         fn_name = parse_ident(pid)
 
-        # hard assert for now, could become less strict e.g. for functions that take no arguments.
-        %Lexer{token: :oparen} = Lexer.current(pid)
         {:ok, args} = parse_args(pid)
 
         %Lexer{token: :oparen} = Lexer.current(pid)
         Lexer.shift(pid)
-        {:ok, body} = parse_scope_term_list(pid)
-          |> then(&({elem(&1, 0), struct!(Node, type: Node.Type.scope(), params: elem(&1, 1))}))
+
+        {:ok, body} =
+          parse_scope_term_list(pid)
+          |> then(&{elem(&1, 0), struct!(Node, type: Node.Type.scope(), params: elem(&1, 1))})
 
         Lexer.shift(pid)
 
@@ -319,7 +351,33 @@ defmodule Elil.Parser do
     end
   end
 
-  defp expect(%Lexer{} = lexer, expected_token) when is_atom(expected_token) do
+  defp expect_token(%Lexer{} = lexer, expected_tokens)
+       when is_list(expected_tokens) and length(expected_tokens) > 1 do
+    case Enum.member?(expected_tokens, lexer.token) do
+      true ->
+        :ok
+
+      # TODO: @see logging errors
+      false ->
+        expected_tokens
+        |> Enum.map(fn t -> "\":#{Atom.to_string(t)}\"" end)
+        |> Enum.join(", ")
+        |> then(
+          &Elil.Logger.error_log_and_die(
+            "expected one of [\":#{&1}\"], but got \":#{Atom.to_string(lexer.token)}\""
+          )
+        )
+
+        :err
+    end
+  end
+
+  defp expect_token(%Lexer{} = lexer, expected_token)
+       when is_list(expected_token) and length(expected_token) <= 1 do
+    expect_token(lexer, List.first!(expected_token))
+  end
+
+  defp expect_token(%Lexer{} = lexer, expected_token) when is_atom(expected_token) do
     case lexer.token do
       ^expected_token ->
         :ok
@@ -328,6 +386,22 @@ defmodule Elil.Parser do
       _ ->
         Elil.Logger.error_log_and_die(
           "expected \":#{Atom.to_string(expected_token)}\", but got \":#{Atom.to_string(lexer.token)}\""
+        )
+
+        :err
+    end
+  end
+
+  defp expect_type(%Lexer{} = lexer) do
+    expect_token(lexer, :ident)
+
+    case String.to_atom(lexer.value) do
+      l when is_valid_type(l) ->
+        :ok
+
+      _ ->
+        Elil.Logger.error_log_and_die(
+          "unexpected type. TODO: move this error from parser to evaluator."
         )
     end
   end

@@ -1,0 +1,9 @@
+; define a new function that takes one argument
+(deffn hello (name:string) (
+    (echo "Hello " name "!\n")))
+
+(echo "called from global scope""\n")
+
+; invoke function
+(hello "Seaman")
+

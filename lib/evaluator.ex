@@ -118,7 +118,11 @@ defmodule Elil.Evaluator do
     end
 
     @impl true
-    def handle_call({:put_symbol, var_name, %Value{type: type} = value}, _from, %Context{} = state)
+    def handle_call(
+          {:put_symbol, var_name, %Value{type: type} = value},
+          _from,
+          %Context{} = state
+        )
         when type != :void and is_binary(var_name) do
       # TODO: make local variables when we introduce functions
       [scope | rest_scopes] = state.scopes
@@ -387,8 +391,8 @@ defmodule Elil.Evaluator do
   end
 
   defp eval_deffn(pid, %Node{type: :deffn} = node) when is_pid(pid) do
-
     # NOTE: this code looks a lot like eval_let. Especially since we use the same namespace for deffn and let
+    # TODO: since we use func type for deffn, we probably need some sort of quoted thing, for when functions as first class citizens are eventually introduced
 
     value = Value.new(node.params, Value.Type.func())
 
@@ -435,14 +439,15 @@ defmodule Elil.Evaluator do
       # Elil.Logger.error_log_and_die("variable \"#{to_string(node.body)}\" is undefined")
 
       {:ok, %Value{type: :func} = value} ->
-        if (length(node.params) > 0), do: todo("handle function arguments")
-        _fn_args = Keyword.get(value.value, :fn_args)
-
+        fn_args = Keyword.get(value.value, :fn_args)
+        if length(node.params) > 0 or length(fn_args) > 0, do: todo("handle function arguments")
+        _fn_args = resolve_func_args(fn_args)
 
         fn_body = Keyword.get(value.value, :fn_body)
         {:ok} = r = eval_node(pid, fn_body)
+
         return =
-          if (r !== {:ok}) do
+          if r !== {:ok} do
             todo("handle function returning value")
           else
             struct!(Value, type: Value.Type.void())
@@ -456,5 +461,10 @@ defmodule Elil.Evaluator do
       {:ok, %Value{type: type} = value} when type != :void ->
         value
     end
+  end
+
+  defp resolve_func_args(v) do
+    todo("resolve_func_args")
+    v
   end
 end
