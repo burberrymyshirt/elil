@@ -287,7 +287,7 @@ defmodule Elil.Parser do
 
         Lexer.shift(pid)
 
-        params = [args: args, fn_body: body]
+        params = [fn_args: args, fn_body: body]
         struct!(Node, type: Node.Type.deffn(), body: fn_name, params: params)
 
       %Lexer{value: "if"} ->

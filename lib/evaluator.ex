@@ -226,6 +226,8 @@ defmodule Elil.Evaluator do
   end
 
   defp eval_node(pid, %Node{type: :scope, body: nil} = node) when is_pid(pid) do
+    # TODO: when calling from a function, this should behave a bit differently,
+    # as we need to push the functions arguments into the new scope as well.
     {:ok} = Context.push_scope(pid)
     eval_params(pid, node)
     {:ok} = Context.pop_scope(pid)
@@ -296,9 +298,6 @@ defmodule Elil.Evaluator do
     # TODO: add meta data from parser to report arity/variadic parameters
     #  Right now we just ignore parameters when there are more than the function needs
     case func do
-      "fn" ->
-        todo("implement let bindings")
-
       "add" ->
         Enum.map(args, fn v ->
           eval_node(pid, v)
@@ -435,10 +434,25 @@ defmodule Elil.Evaluator do
       #  @see logging errors in todo.txt
       # Elil.Logger.error_log_and_die("variable \"#{to_string(node.body)}\" is undefined")
 
-      {:ok, %Value{type: :func} = _value} ->
-        todo("evaluate function call")
+      {:ok, %Value{type: :func} = value} ->
+        if (length(node.params) > 0), do: todo("handle function arguments")
+        _fn_args = Keyword.get(value.value, :fn_args)
 
-      # void cannot be a vairable, so hard assert
+
+        fn_body = Keyword.get(value.value, :fn_body)
+        {:ok} = r = eval_node(pid, fn_body)
+        return =
+          if (r !== {:ok}) do
+            todo("handle function returning value")
+          else
+            struct!(Value, type: Value.Type.void())
+          end
+
+        # TODO: This return might have to be assigned to something
+        {:ok, return}
+
+      # void cannot be a vairable, so hard assert for now.
+      # TODO: @see logging errors we wanna either log that void is not valid and crash, or allow void as some sort of valid value.
       {:ok, %Value{type: type} = value} when type != :void ->
         value
     end
