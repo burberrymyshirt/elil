@@ -12,10 +12,10 @@ defmodule Elil.Evaluator do
     ]
 
     defmodule Type do
-      @compile {:inline, int: 0, void: 0, str: 0, bool_false: 0, bool_true: 0, func: 0}
+      @compile {:inline, int: 0, void: 0, string: 0, bool_false: 0, bool_true: 0, func: 0}
       def int(), do: :int
       def void(), do: :void
-      def str(), do: :str
+      def string(), do: :string
       def func(), do: :func
       def bool_true(), do: :bool_true
       def bool_false(), do: :bool_false
@@ -45,8 +45,8 @@ defmodule Elil.Evaluator do
       struct!(Value, type: Type.bool_false(), value: 0)
     end
 
-    def new(v, :str) when not is_nil(v) do
-      struct!(Value, type: Type.str(), value: to_string(v))
+    def new(v, :string) when not is_nil(v) do
+      struct!(Value, type: Type.string(), value: to_string(v))
     end
 
     def new(v, :func) when not is_nil(v) when is_list(v) do
@@ -170,6 +170,16 @@ defmodule Elil.Evaluator do
   defguard is_scope_type(type) when type in [:root, :scope]
   defguard is_lit(type) when type in [:dqstr, :int, :bool_true, :bool_false]
 
+  @elil_types [:string, :int, :func, :mixed]
+
+  defp is_builtin_type(t) when is_atom(t) do
+    t in @elil_types
+  end
+
+  defp is_valid_type(t) do
+    is_builtin_type(t)
+  end
+
   def eval(file) do
     # TODO: error handling
     case File.exists?(file) do
@@ -289,7 +299,7 @@ defmodule Elil.Evaluator do
   # TODO: could be merged with the eval_params/2 above, idk if it is actually important that the body is nil.
   #  I just wanna assert as much as possible right now. I don't know if we need named scopes in the future,
   #  but in that case I would like to keep the assert for now so I know where refactoring is needed.
-  defp eval_params(pid, %Node{type: :let} = node) when is_pid(pid) do
+  defp eval_params(pid, %Node{type: type} = node) when is_pid(pid) and type in [:let, :ident] do
     node.params
     |> Enum.map(&eval_node(pid, &1))
   end
@@ -357,7 +367,7 @@ defmodule Elil.Evaluator do
         # TODO: make it fail if more are given or something.
         [arg | _] = args
 
-        %Value{type: :str} = value = eval_node(pid, arg)
+        %Value{type: :string} = value = eval_node(pid, arg)
 
         value
         |> then(& &1.value)
@@ -387,7 +397,7 @@ defmodule Elil.Evaluator do
 
   defp eval_lit(pid, %Node{type: :dqstr} = node) when is_pid(pid) do
     # TODO: string interpolating
-    Value.new(node.body, Value.Type.str())
+    Value.new(node.body, Value.Type.string())
   end
 
   defp eval_deffn(pid, %Node{type: :deffn} = node) when is_pid(pid) do
@@ -439,9 +449,29 @@ defmodule Elil.Evaluator do
       # Elil.Logger.error_log_and_die("variable \"#{to_string(node.body)}\" is undefined")
 
       {:ok, %Value{type: :func} = value} ->
-        fn_args = Keyword.get(value.value, :fn_args)
-        if length(node.params) > 0 or length(fn_args) > 0, do: todo("handle function arguments")
-        _fn_args = resolve_func_args(fn_args)
+        {:ok, fn_params} =
+          value.value
+          |> Keyword.get(:fn_params)
+          |> resolve_func_params()
+
+        params = eval_params(pid, node)
+        expect_all(params, Value)
+
+        arguments =
+          case validate_func_params(params, fn_params) do
+            {:ok, arguments} ->
+              arguments
+
+            {:err, msg} ->
+              # TODO: @see logging errors
+              Elil.Logger.error_log_and_die(msg)
+          end
+
+        Context.push_scope(pid)
+
+        # TODO: This is a bit scuffed. Maybe the Value should know its own name,
+        # instead of just being the symbol key in the scope.
+        arguments |> Enum.each(&Context.put_symbol(pid, elem(&1, 0), elem(&1, 1)))
 
         fn_body = Keyword.get(value.value, :fn_body)
         {:ok} = r = eval_node(pid, fn_body)
@@ -453,6 +483,8 @@ defmodule Elil.Evaluator do
             struct!(Value, type: Value.Type.void())
           end
 
+        Context.pop_scope(pid)
+
         # TODO: This return might have to be assigned to something
         {:ok, return}
 
@@ -463,8 +495,71 @@ defmodule Elil.Evaluator do
     end
   end
 
-  defp resolve_func_args(v) do
-    todo("resolve_func_args")
-    v
+  defp resolve_func_params(v, acc \\ [])
+
+  defp resolve_func_params(v, acc) when is_list(v) and 0 === length(v) do
+    {:ok, Enum.reverse(acc)}
+  end
+
+  defp resolve_func_params(v, acc) when is_list(v) do
+    [head | tail] = v
+
+    if not is_valid_type(Keyword.get(head.params, :type)) do
+      # TODO: @see logging errors
+      Elil.Logger.error_log_and_die("invalid type given for argument")
+    end
+
+    resolve_func_params(tail, [head | acc])
+  end
+
+  defp validate_func_params(parameters, arguments)
+       when is_list(arguments) and is_list(parameters) and
+              length(arguments) !== length(parameters) do
+    {
+      :err,
+      # TODO: @see logging erros. The function name should be logged here. idk maybe with a format string parsed above?
+      "not enough arguments passed to function. Got #{length(parameters)}, but expected #{length(arguments)}"
+    }
+  end
+
+  defp validate_func_params(parameters, arguments)
+       when is_list(parameters) and is_list(arguments) do
+    Enum.zip([parameters, arguments])
+    |> Enum.map(fn {parameter, argument} ->
+      case validate_single_func_param(parameter, argument) do
+        {:ok, {name, %Value{} = value}} -> {name, value}
+        # TODO: @see logging errors
+        {:err, msg} -> Elil.Logger.error_log_and_die(msg)
+      end
+    end)
+    |> then(&{:ok, &1})
+  end
+
+  defp validate_single_func_param(
+         %Value{type: atype} = _argument,
+         %Node{params: [type: ptype]} = _parameter
+       )
+       when is_atom(ptype) and is_atom(atype) and ptype !== atype do
+    # TODO: @see logging errors The arguments here need to say which argument was wrong and stuff like that.
+    {:err,
+     "argument does not have the same type as the parameter needs. Got: #{Atom.to_string(atype)}, but expected #{Atom.to_string(ptype)}"}
+  end
+
+  defp validate_single_func_param(
+         %Value{type: atype} = argument,
+         %Node{params: [type: ptype]} = parameter
+       )
+       when is_atom(ptype) and is_atom(atype) do
+    # TODO: this only works for literals with no parameters. Maybe not the best idea.
+    {:ok, {parameter.body, struct!(Value, type: argument.type, value: argument.value)}}
+  end
+
+  defp expect_all(values, struct_type) when is_list(values) and is_atom(struct_type) do
+    values
+    |> Enum.each(fn
+      v when is_struct(v, struct_type) -> :ok
+      # TODO: @see logging errors
+      _ -> Elil.Logger.error_log_and_die("idk")
+    end)
   end
 end

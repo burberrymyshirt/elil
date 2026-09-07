@@ -43,13 +43,6 @@ defmodule Elil.Parser do
     ]
   end
 
-  # TODO: should be contained in one place. Types are also located in the evaluator.
-  #  Also I don't know how we should handle users defining their own types. So this is temp only.
-  #  Maybe the evaluator should just handle validating types i guess.
-  @elil_types [:string, :int, :func, :mixed]
-
-  defguardp is_valid_type(t) when is_atom(t) and t in @elil_types
-
   def parse(lexer_pid) when is_pid(lexer_pid) do
     {:ok, list} = parse_root_term_list(lexer_pid)
     {:ok, %Node{type: Node.Type.root(), params: list}}
@@ -235,14 +228,14 @@ defmodule Elil.Parser do
     end
   end
 
-  defp parse_args(pid) when is_pid(pid) do
+  defp parse_func_params(pid) when is_pid(pid) do
     # hard assert for now, could become less strict e.g. for functions that take no arguments.
     :ok = expect_token(Lexer.current(pid), :oparen)
     Lexer.shift(pid)
-    do_parse_args(pid)
+    do_parse_func_params(pid)
   end
 
-  defp do_parse_args(pid, acc \\ []) do
+  defp do_parse_func_params(pid, acc \\ []) do
     case Lexer.current(pid) do
       %Lexer{token: :cparen} ->
         Lexer.shift(pid)
@@ -258,15 +251,13 @@ defmodule Elil.Parser do
           case current do
             %Lexer{token: :colon} ->
               %Lexer{} = type = Lexer.shift(pid)
-
-              # TODO: should probably happen in the evaluator as we can't know the type here for sure. in the case where users get to define their own.
-              :ok = expect_type(type)
-              type_value = parse_ident(pid)
+              :ok = expect_token(type, :ident)
+              type_ident = parse_ident(pid)
 
               struct!(Node,
                 type: Node.Type.ident(),
                 body: ident,
-                params: [type: String.to_atom(type_value)]
+                params: [type: String.to_atom(type_ident)]
               )
 
             # validated by previous expect
@@ -274,7 +265,7 @@ defmodule Elil.Parser do
               struct!(Node, type: Node.Type.ident(), body: ident, params: [type: :mixed])
           end
 
-        do_parse_args(pid, [node | acc])
+        do_parse_func_params(pid, [node | acc])
     end
   end
 
@@ -308,7 +299,7 @@ defmodule Elil.Parser do
         Lexer.shift(pid)
         fn_name = parse_ident(pid)
 
-        {:ok, args} = parse_args(pid)
+        {:ok, fn_params} = parse_func_params(pid)
 
         %Lexer{token: :oparen} = Lexer.current(pid)
         Lexer.shift(pid)
@@ -319,7 +310,7 @@ defmodule Elil.Parser do
 
         Lexer.shift(pid)
 
-        params = [fn_args: args, fn_body: body]
+        params = [fn_params: fn_params, fn_body: body]
         struct!(Node, type: Node.Type.deffn(), body: fn_name, params: params)
 
       %Lexer{value: "if"} ->
@@ -389,20 +380,6 @@ defmodule Elil.Parser do
         )
 
         :err
-    end
-  end
-
-  defp expect_type(%Lexer{} = lexer) do
-    expect_token(lexer, :ident)
-
-    case String.to_atom(lexer.value) do
-      l when is_valid_type(l) ->
-        :ok
-
-      _ ->
-        Elil.Logger.error_log_and_die(
-          "unexpected type. TODO: move this error from parser to evaluator."
-        )
     end
   end
 end
