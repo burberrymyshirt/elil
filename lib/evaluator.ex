@@ -91,6 +91,14 @@ defmodule Elil.Evaluator do
       GenServer.call(pid, {:put_symbol, var_name, value})
     end
 
+    def reassign_let(pid, var_name, %Value{type: type} = value)
+        when is_pid(pid) and is_binary(var_name) and type != :void do
+      # TODO: @see logging errors
+      # cannot assign void to anything, so we hard fail for now
+
+      GenServer.call(pid, {:reassign_let, var_name, value})
+    end
+
     def get_symbol(pid, %Node{type: :ident} = node) when is_pid(pid) do
       get_symbol(pid, node.body)
     end
@@ -124,7 +132,6 @@ defmodule Elil.Evaluator do
           %Context{} = state
         )
         when type != :void and is_binary(var_name) do
-      # TODO: make local variables when we introduce functions
       [scope | rest_scopes] = state.scopes
 
       case Map.has_key?(scope.symbols, var_name) do
@@ -136,6 +143,28 @@ defmodule Elil.Evaluator do
           symbols = Map.put_new(scope.symbols, var_name, value)
           scope = struct!(scope, symbols: symbols)
           {:reply, :ok, struct!(state, scopes: [scope | rest_scopes])}
+      end
+    end
+
+    @impl true
+    def handle_call(
+          {:reassign_let, var_name, %Value{type: type} = value},
+          _from,
+          %Context{} = state
+        )
+        when type != :void and is_binary(var_name) do
+      dump(length(state.scopes))
+
+      # TODO: make local variables when we introduce functions
+      case do_reassign_let(var_name, state.scopes, value) do
+        # scopes cannot change if the variable is undefined, so ignore them.
+        {:empty} ->
+          {:reply, {:undefined}, state}
+
+        {:ok, scopes} ->
+          dump(length(scopes))
+          dump(scopes)
+          {:reply, {:ok}, struct!(state, scopes: scopes)}
       end
     end
 
@@ -163,6 +192,54 @@ defmodule Elil.Evaluator do
 
         %Value{} = value ->
           {:ok, value}
+      end
+    end
+
+    defp do_reassign_let(name, scopes, value, acc \\ [], state \\ :undefined)
+
+    defp do_reassign_let(name, scopes, %Value{}, acc, state)
+         when is_binary(name) and is_list(scopes) and 0 === length(scopes) and is_atom(state) do
+      {state, Enum.reverse(acc)}
+    end
+
+    defp do_reassign_let(name, scopes, %Value{} = value, acc, state)
+         when is_list(acc) and is_atom(state) and is_binary(name) and is_list(scopes) do
+      # This loops through the entire stack of scopes. A better solution would
+      # be to just short circuit the recursion once we hit the first actual
+      # reassignment, but I cannot seem to express that correctly yet, so this
+      # will do for now. The idea was to not have acc and state at all, but I
+      # couldn't get that working, so this was made to just get on with my life.
+
+      [scope | rest] = scopes
+
+      {state, scope} =
+        case state do
+          # @see above comment for why this was done.
+          # This is so we don't reassign every single variable of the given name,
+          # once we hit the first successful reassignment.
+          :ok ->
+            {:ok, scope}
+
+          _ ->
+            case do_reassign_single_let(scope, name, value) do
+              {:ok, scope} ->
+                {:ok, scope}
+
+              {:undefined} ->
+                {state, scope}
+            end
+        end
+
+      do_reassign_let(name, rest, value, [scope | acc], state)
+    end
+
+    defp do_reassign_single_let(%Scope{} = scope, name, %Value{} = value) when is_binary(name) do
+      case Map.has_key?(scope.symbols, name) do
+        false ->
+          {:undefined}
+
+        true ->
+          {:ok, struct!(scope, symbols: Map.put(scope.symbols, name, value))}
       end
     end
   end
@@ -253,6 +330,10 @@ defmodule Elil.Evaluator do
 
   defp eval_node(pid, %Node{type: :let} = node) when is_pid(pid) do
     eval_let(pid, node)
+  end
+
+  defp eval_node(pid, %Node{type: :ass} = node) when is_pid(pid) do
+    eval_ass(pid, node)
   end
 
   defp eval_node(pid, %Node{type: :deffn} = node) when is_pid(pid) do
@@ -426,6 +507,25 @@ defmodule Elil.Evaluator do
     %Value{} = value = eval_node(pid, head)
 
     case Context.put_symbol(pid, node.body, value) do
+      {:already_exists} ->
+        # TODO: add meta data from parser, so we can report line numbers
+        #  @see logging errors in todo.txt
+        Elil.Logger.error_log_and_die(
+          "symbol \"#{to_string(node.body)}\" has already been previously defined"
+        )
+
+      _ ->
+        {:ok}
+    end
+  end
+
+  defp eval_ass(pid, %Node{type: :ass} = node) when is_pid(pid) do
+    # Hard assert for now. Only one value can be assigned to a variable.
+    1 = length(node.params)
+    [head | _] = node.params
+    %Value{} = value = eval_node(pid, head)
+
+    case Context.reassign_let(pid, node.body, value) do
       {:already_exists} ->
         # TODO: add meta data from parser, so we can report line numbers
         #  @see logging errors in todo.txt

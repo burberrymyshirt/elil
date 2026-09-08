@@ -17,6 +17,7 @@ defmodule Elil.Parser do
                 dqstr: 0,
                 int: 0,
                 let: 0,
+                ass: 0,
                 ident: 0,
                 deffn: 0,
                 cond_if: 0,
@@ -27,6 +28,7 @@ defmodule Elil.Parser do
       def dqstr(), do: :dqstr
       def int(), do: :int
       def let(), do: :let
+      def ass(), do: :ass
       def ident(), do: :ident
       def deffn(), do: :deffn
       def cond_if(), do: :cond_if
@@ -286,6 +288,23 @@ defmodule Elil.Parser do
             # hard assert for now.
             1 = length(term)
             %Node{type: Node.Type.let(), body: ident, params: term}
+
+          %Lexer{} = lexer ->
+            Elil.Logger.error_log_and_die(
+              Lexer.get_file_path(pid),
+              lexer,
+              "a valid identifier is expected when doing a \"let\" binding, got: :#{Atom.to_string(lexer.token)}"
+            )
+        end
+
+      %Lexer{value: "ass"} ->
+        case Lexer.shift(pid) do
+          %Lexer{token: :ident} ->
+            ident = parse_ident(pid)
+            {:ok, term} = parse_params(pid)
+            # hard assert for now.
+            1 = length(term)
+            %Node{type: Node.Type.ass(), body: ident, params: term}
 
           %Lexer{} = lexer ->
             Elil.Logger.error_log_and_die(

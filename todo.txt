@@ -5,6 +5,13 @@ Current and pressing bugs:
    the add function returns charlist containing a number, which gets printed as the ascii literal.
    We have just been using strings for everything else so far, so it needs to be redone I think.
 
+[] We need to introduce some sort of meta data for everything defined in a scope.
+   E.g. the name of a variable or function. Whether the item is a function or a
+   variable definition. Which type of scope we are working with. This will make
+   defining boundaries for types of scopes and stuff like local variables way easier.
+   This will also make logging of errors for type mismatches in function arguments easier,
+   which will greatly help some of the "@see logging errors" annotations.
+
 Todos and wants
 
 --- Most pressing
@@ -56,7 +63,7 @@ Todos and wants
 
 --- Later on down the line
 [] with statements when nested cases are used. They just seem kind of confusing, so not touching for now.
-   nested cases are very readable and work fine, but are just pretty bloated.
+   Nested cases are very readable and work fine, but are just pretty bloated.
 [] multi-file programs through require.
 [] building a standalone executable.
 [] maybe implement multi stage compilation. Right now everything is single pass, which makes undefined variables annoying.
@@ -71,6 +78,10 @@ Todos and wants
    And by interpreter, I mean having different Behaviours for the lexer, parser and evaluator to hook into.
    We could introduce specific keywords with specific rules and maybe even operators or something.
    idk how useful it will be, but I think it would be a kind of sick idea to play with.
+
+[] variable reassignment should not look though the entire stack of scopes if an early match was found.
+   A skill issue and lack of thinking because of illness lead me to the current implementation,
+   which is not optimal at all, and needs redoing.
 
 [] Go through all TODOs in the code :D
 
