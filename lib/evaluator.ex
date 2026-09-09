@@ -158,7 +158,7 @@ defmodule Elil.Evaluator do
       # TODO: make local variables when we introduce functions
       case do_reassign_let(var_name, state.scopes, value) do
         # scopes cannot change if the variable is undefined, so ignore them.
-        {:empty} ->
+        {:undefined} ->
           {:reply, {:undefined}, state}
 
         {:ok, scopes} ->
@@ -488,7 +488,7 @@ defmodule Elil.Evaluator do
     value = Value.new(node.params, Value.Type.func())
 
     case Context.put_symbol(pid, node.body, value) do
-      {:already_exists} ->
+      :already_exists ->
         # TODO: add meta data from parser, so we can report line numbers
         #  @see logging errors in todo.txt
         Elil.Logger.error_log_and_die(
@@ -507,7 +507,7 @@ defmodule Elil.Evaluator do
     %Value{} = value = eval_node(pid, head)
 
     case Context.put_symbol(pid, node.body, value) do
-      {:already_exists} ->
+      :already_exists ->
         # TODO: add meta data from parser, so we can report line numbers
         #  @see logging errors in todo.txt
         Elil.Logger.error_log_and_die(
