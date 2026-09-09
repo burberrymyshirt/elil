@@ -1,4 +1,6 @@
 Current and pressing bugs:
+[] recursive functions. This will enable looping, which is an essential feature for any usable language.
+[] reassignment of variables, as this is also needed in any usable application.
 [] examples/full.elil doesn't print numbers as string. It prints the literal char 'E',
    as that is the ascii charater of the digit 69. Types should probably be passed from
    the parser to the evaluator, instead of just passing lit. But I think its because
