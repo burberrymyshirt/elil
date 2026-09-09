@@ -153,7 +153,6 @@ defmodule Elil.Evaluator do
           %Context{} = state
         )
         when type != :void and is_binary(var_name) do
-      dump(length(state.scopes))
 
       # TODO: make local variables when we introduce functions
       case do_reassign_let(var_name, state.scopes, value) do
@@ -162,8 +161,6 @@ defmodule Elil.Evaluator do
           {:reply, {:undefined}, state}
 
         {:ok, scopes} ->
-          dump(length(scopes))
-          dump(scopes)
           {:reply, {:ok}, struct!(state, scopes: scopes)}
       end
     end
@@ -386,12 +383,16 @@ defmodule Elil.Evaluator do
   end
 
   defp eval_expr(pid, %Node{type: :ident} = node) when is_pid(pid) do
-    eval_func(pid, node.body, node.params)
+    case eval_func(pid, node.body, node.params) do
+      {:err, msg} -> Elil.Logger.error_log_and_die(node, msg)
+      %Value{} = value -> value
+    end
   end
 
   defp eval_func(pid, func, args) when is_binary(func) and is_list(args) and is_pid(pid) do
-    # TODO: add meta data from parser to report arity/variadic parameters
-    #  Right now we just ignore parameters when there are more than the function needs
+    # TODO: @see logging errors the current logging just bubbles up to the calling function,
+    # which doesn't take specific arguments or anything into account. Good enough
+    # for now, but at a later point, I would like to have errors be more pin-pointable and direct
     case func do
       "add" ->
         Enum.map(args, fn v ->
@@ -401,17 +402,13 @@ defmodule Elil.Evaluator do
         end)
         |> Enum.reduce(0, fn
           {v, rem}, _acc when is_list(rem) and length(rem) > 0 ->
-            Elil.Logger.error_log_and_die(
-              "function add() expects only integers as arguments, got #{v}"
-            )
+            {:err, "function add() expects only integers as arguments, got #{v}"}
 
           {v, _rem}, acc when is_integer(v) ->
             v + acc
 
           v, _acc ->
-            Elil.Logger.error_log_and_die(
-              "function add() expects only integers as arguments, got #{v}"
-            )
+            {:err, "function add() expects only integers as arguments, got #{v}"}
         end)
         |> Value.new(Value.Type.int())
 
@@ -424,17 +421,13 @@ defmodule Elil.Evaluator do
         end)
         |> Enum.reduce(0, fn
           {v, rem}, _acc when is_list(rem) and length(rem) > 0 ->
-            Elil.Logger.error_log_and_die(
-              "function sub() expects only integers as arguments, got #{v}"
-            )
+            {:err, "function sub() expects only integers as arguments, got #{v}"}
 
           {v, _rem}, acc when is_integer(v) ->
             v + acc
 
           v, _acc ->
-            Elil.Logger.error_log_and_die(
-              "function sub() expects only integers as arguments, got #{v}"
-            )
+            {:err, "function sub() expects only integers as arguments, got #{v}"}
         end)
         |> Value.new(Value.Type.int())
 
@@ -455,12 +448,8 @@ defmodule Elil.Evaluator do
         |> eval()
         |> Value.new(Value.Type.void())
 
-      # TODO: add meta data from parser, so we can report line numbers
-      #  @see logging errors in todo.txt
       _ ->
-        Elil.Logger.error_log_and_die(
-          "symbol \"#{func}\" is not defined as either a function or variable"
-        )
+        {:err, "symbol \"#{func}\" is not defined as either a function or variable"}
     end
   end
 
@@ -489,9 +478,8 @@ defmodule Elil.Evaluator do
 
     case Context.put_symbol(pid, node.body, value) do
       :already_exists ->
-        # TODO: add meta data from parser, so we can report line numbers
-        #  @see logging errors in todo.txt
         Elil.Logger.error_log_and_die(
+          node,
           "symbol \"#{to_string(node.body)}\" has already been previously defined"
         )
 
@@ -508,9 +496,8 @@ defmodule Elil.Evaluator do
 
     case Context.put_symbol(pid, node.body, value) do
       :already_exists ->
-        # TODO: add meta data from parser, so we can report line numbers
-        #  @see logging errors in todo.txt
         Elil.Logger.error_log_and_die(
+          node,
           "symbol \"#{to_string(node.body)}\" has already been previously defined"
         )
 
@@ -527,9 +514,8 @@ defmodule Elil.Evaluator do
 
     case Context.reassign_let(pid, node.body, value) do
       {:already_exists} ->
-        # TODO: add meta data from parser, so we can report line numbers
-        #  @see logging errors in todo.txt
         Elil.Logger.error_log_and_die(
+          node,
           "symbol \"#{to_string(node.body)}\" has already been previously defined"
         )
 
@@ -542,11 +528,10 @@ defmodule Elil.Evaluator do
     # TODO: figure out when we need to do a function lookup vs a variable lookup
     case Context.get_symbol(pid, node) do
       {:undefined} ->
+        # fallback to builtin functions for now.
+        # @see logging errors Maybe this should all just be put inside the scope
+        # at the beginning at some point, so we can report errors properly here
         eval_expr(pid, node)
-
-      # TODO: add meta data from parser, so we can report line numbers
-      #  @see logging errors in todo.txt
-      # Elil.Logger.error_log_and_die("variable \"#{to_string(node.body)}\" is undefined")
 
       {:ok, %Value{type: :func} = value} ->
         {:ok, fn_params} =
@@ -564,7 +549,7 @@ defmodule Elil.Evaluator do
 
             {:err, msg} ->
               # TODO: @see logging errors
-              Elil.Logger.error_log_and_die(msg)
+              Elil.Logger.error_log_and_die(node, msg)
           end
 
         Context.push_scope(pid)
@@ -605,8 +590,7 @@ defmodule Elil.Evaluator do
     [head | tail] = v
 
     if not is_valid_type(Keyword.get(head.params, :type)) do
-      # TODO: @see logging errors
-      Elil.Logger.error_log_and_die("invalid type given for argument")
+      Elil.Logger.error_log_and_die(head, "invalid type given for argument")
     end
 
     resolve_func_params(tail, [head | acc])
@@ -629,7 +613,7 @@ defmodule Elil.Evaluator do
       case validate_single_func_param(parameter, argument) do
         {:ok, {name, %Value{} = value}} -> {name, value}
         # TODO: @see logging errors
-        {:err, msg} -> Elil.Logger.error_log_and_die(msg)
+        {:err, msg} -> Elil.Logger.error_log_and_die(argument, msg)
       end
     end)
     |> then(&{:ok, &1})

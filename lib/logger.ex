@@ -4,14 +4,22 @@ defmodule Elil.Logger do
     exit({:shutdown, 1})
   end
 
+  def error_log_and_die(
+        %{source_location: %{row: row, column: col, file_path: file_path} = loc},
+        msg
+      )
+      when is_binary(msg) and is_integer(row) and is_integer(col) and is_binary(file_path) do
+    error_log_and_die(loc, msg)
+  end
+
+  def error_log_and_die(%{row: row, column: col, file_path: file_path} = pos, msg)
+      when is_binary(msg) and is_integer(row) and is_integer(col) and is_binary(file_path) do
+    error_log_and_die(pos.file_path, {pos.row, pos.column}, msg)
+  end
+
   def error_log_and_die(file_path, msg) when is_binary(file_path) and is_binary(msg) do
     error_log(file_path, msg)
     exit({:shutdown, 1})
-  end
-
-  def error_log_and_die(file_path, %Elil.Lexer{} = lexer, msg)
-      when is_binary(file_path) and is_binary(msg) do
-    error_log_and_die(file_path, {lexer.row, lexer.col}, msg)
   end
 
   def error_log_and_die(file_path, {row, col} = pos, msg)

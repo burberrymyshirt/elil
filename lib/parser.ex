@@ -1,11 +1,14 @@
 defmodule Elil.Parser do
+  alias Elil.Utils.SourceLocation
   alias Elil.Lexer, as: Lexer
   require Elil.Utils
   import Elil.Utils
 
   defmodule Node do
+    @enforce_keys :source_location
     defstruct [
       :type,
+      :source_location,
       body: nil,
       params: []
     ]
@@ -47,7 +50,14 @@ defmodule Elil.Parser do
 
   def parse(lexer_pid) when is_pid(lexer_pid) do
     {:ok, list} = parse_root_term_list(lexer_pid)
-    {:ok, %Node{type: Node.Type.root(), params: list}}
+
+    {:ok,
+     %Node{
+       type: Node.Type.root(),
+       params: list,
+       source_location:
+         struct!(SourceLocation, row: 0, column: 0, file_path: Lexer.get_file_path(lexer_pid))
+     }}
   end
 
   defp parse_root_term_list(pid, acc \\ []) when is_pid(pid) and is_list(acc) do
@@ -60,7 +70,6 @@ defmodule Elil.Parser do
 
           %Lexer{} = lexer ->
             Elil.Logger.error_log_and_die(
-              Lexer.get_file_path(pid),
               lexer,
               "expected \":oparen\", but got: :#{Atom.to_string(lexer.token)}"
             )
@@ -75,9 +84,9 @@ defmodule Elil.Parser do
       %Lexer{token: :oparen} ->
         case Lexer.shift(pid) do
           # handle nested scopes
-          %Lexer{token: :oparen} ->
+          %Lexer{token: :oparen} = lexer ->
             {:ok, list} = parse_scope_term_list(pid)
-            node = struct!(Node, type: Node.Type.scope(), params: list)
+            node = struct!(Node, type: Node.Type.scope(), params: list, source_location: lexer.source_location)
             parse_root_term_list(pid, [node | acc])
 
           # handle standalone terms
@@ -110,51 +119,82 @@ defmodule Elil.Parser do
 
   defp parse_term(pid) do
     case Lexer.current(pid) do
-      %Lexer{token: :ident} ->
+      %Lexer{token: :ident} = lexer ->
         ident = parse_ident(pid)
         {:ok, params} = parse_params(pid)
-        node = struct!(Node, type: Node.Type.ident(), body: ident, params: params)
+
+        node =
+          struct!(Node,
+            type: Node.Type.ident(),
+            body: ident,
+            params: params,
+            source_location: lexer.source_location
+          )
+
         {:ok, node}
 
       %Lexer{token: :kwd} ->
         node = parse_kwd(pid)
         {:ok, node}
 
-      %Lexer{token: :bool_true} ->
+      %Lexer{token: :bool_true} = lexer ->
         lit = parse_lit(pid)
 
         # parse_lit can't shift more than it already is, cause then we will end up skipping tokens.
         Lexer.shift(pid)
-        node = %Node{type: Node.Type.bool_true(), body: lit}
+
+        node =
+          struct!(Node,
+            type: Node.Type.bool_true(),
+            body: lit,
+            source_location: lexer.source_location
+          )
+
         {:ok, node}
 
-      %Lexer{token: :bool_false} ->
+      %Lexer{token: :bool_false} = lexer ->
         lit = parse_lit(pid)
 
         # parse_lit can't shift more than it already is, cause then we will end up skipping tokens.
         Lexer.shift(pid)
-        node = %Node{type: Node.Type.bool_false(), body: lit}
+
+        node =
+          struct!(Node,
+            type: Node.Type.bool_false(),
+            body: lit,
+            source_location: lexer.source_location
+          )
+
         {:ok, node}
 
-      %Lexer{token: :dqstr} ->
+      %Lexer{token: :dqstr} = lexer ->
         lit = parse_lit(pid)
 
         # parse_lit can't shift more than it already is, cause then we will end up skipping tokens.
         Lexer.shift(pid)
-        node = %Node{type: Node.Type.dqstr(), body: lit}
+
+        node =
+          struct!(Node,
+            type: Node.Type.dqstr(),
+            body: lit,
+            source_location: lexer.source_location
+          )
+
         {:ok, node}
 
-      %Lexer{token: :int} ->
+      %Lexer{token: :int} = lexer ->
         lit = parse_lit(pid)
 
         # parse_lit can't shift more than it already is, cause then we will end up skipping tokens.
         Lexer.shift(pid)
-        node = %Node{type: Node.Type.int(), body: lit}
+
+        node =
+          struct!(Node, type: Node.Type.int(), body: lit, source_location: lexer.source_location)
+
         {:ok, node}
 
       %Lexer{} = lexer ->
         Elil.Logger.error_log_and_die(
-          Lexer.get_file_path(pid),
           lexer,
           "a term has to begin with an identifier or a keyword, got #{Atom.to_string(lexer.token)}"
         )
@@ -176,25 +216,59 @@ defmodule Elil.Parser do
         {:ok, term} = parse_term(pid)
         parse_params(pid, [term | acc])
 
-      %Lexer{token: :dqstr} ->
+      %Lexer{token: :dqstr} = lexer ->
         body = parse_lit(pid)
-        parse_params(pid, [%Node{type: Node.Type.dqstr(), body: body} | acc])
 
-      %Lexer{token: :int} ->
-        body = parse_lit(pid)
-        parse_params(pid, [%Node{type: Node.Type.int(), body: body} | acc])
+        parse_params(pid, [
+          struct!(Node,
+            type: Node.Type.dqstr(),
+            body: body,
+            source_location: lexer.source_location
+          )
+          | acc
+        ])
 
-      %Lexer{token: :bool_true} ->
+      %Lexer{token: :int} = lexer ->
         body = parse_lit(pid)
-        parse_params(pid, [%Node{type: Node.Type.bool_true(), body: body} | acc])
 
-      %Lexer{token: :bool_false} ->
+        parse_params(pid, [
+          struct!(Node, type: Node.Type.int(), body: body, source_location: lexer.source_location)
+          | acc
+        ])
+
+      %Lexer{token: :bool_true} = lexer ->
         body = parse_lit(pid)
-        parse_params(pid, [%Node{type: Node.Type.bool_false(), body: body} | acc])
+
+        parse_params(pid, [
+          struct!(Node,
+            type: Node.Type.bool_true(),
+            body: body,
+            source_location: lexer.source_location
+          )
+          | acc
+        ])
+
+      %Lexer{token: :bool_false} = lexer ->
+        body = parse_lit(pid)
+
+        parse_params(pid, [
+          struct!(Node,
+            type: Node.Type.bool_false(),
+            body: body,
+            source_location: lexer.source_location
+          )
+          | acc
+        ])
 
       # Identifier is used as an argument to e.g. a function.
-      %Lexer{token: :ident} ->
-        node = struct!(Node, type: Node.Type.ident(), body: parse_ident(pid))
+      %Lexer{token: :ident} = lexer ->
+        node =
+          struct!(Node,
+            type: Node.Type.ident(),
+            body: parse_ident(pid),
+            source_location: lexer.source_location
+          )
+
         parse_params(pid, [node | acc])
 
       %Lexer{token: :cparen} ->
@@ -223,7 +297,6 @@ defmodule Elil.Parser do
 
       %Lexer{} = lexer ->
         Elil.Logger.error_log_and_die(
-          Lexer.get_file_path(pid),
           lexer,
           "a valid literal is expected when calling parse_lit binding, got: :#{Atom.to_string(lexer.token)}"
         )
@@ -259,12 +332,18 @@ defmodule Elil.Parser do
               struct!(Node,
                 type: Node.Type.ident(),
                 body: ident,
-                params: [type: String.to_atom(type_ident)]
+                params: [type: String.to_atom(type_ident)],
+                source_location: type.source_location
               )
 
             # validated by previous expect
             _ ->
-              struct!(Node, type: Node.Type.ident(), body: ident, params: [type: :mixed])
+              struct!(Node,
+                type: Node.Type.ident(),
+                body: ident,
+                params: [type: :mixed],
+                source_location: current.source_location
+              )
           end
 
         do_parse_func_params(pid, [node | acc])
@@ -282,16 +361,21 @@ defmodule Elil.Parser do
     case Lexer.current(pid) do
       %Lexer{value: "let"} ->
         case Lexer.shift(pid) do
-          %Lexer{token: :ident} ->
+          %Lexer{token: :ident} = lexer ->
             ident = parse_ident(pid)
             {:ok, term} = parse_params(pid)
             # hard assert for now.
             1 = length(term)
-            %Node{type: Node.Type.let(), body: ident, params: term}
+
+            struct!(Node,
+              type: Node.Type.let(),
+              body: ident,
+              params: term,
+              source_location: lexer.source_location
+            )
 
           %Lexer{} = lexer ->
             Elil.Logger.error_log_and_die(
-              Lexer.get_file_path(pid),
               lexer,
               "a valid identifier is expected when doing a \"let\" binding, got: :#{Atom.to_string(lexer.token)}"
             )
@@ -299,22 +383,27 @@ defmodule Elil.Parser do
 
       %Lexer{value: "ass"} ->
         case Lexer.shift(pid) do
-          %Lexer{token: :ident} ->
+          %Lexer{token: :ident} = lexer ->
             ident = parse_ident(pid)
             {:ok, term} = parse_params(pid)
             # hard assert for now.
             1 = length(term)
-            %Node{type: Node.Type.ass(), body: ident, params: term}
+
+            struct!(Node,
+              type: Node.Type.ass(),
+              body: ident,
+              params: term,
+              source_location: lexer.source_location
+            )
 
           %Lexer{} = lexer ->
             Elil.Logger.error_log_and_die(
-              Lexer.get_file_path(pid),
               lexer,
               "a valid identifier is expected when doing a \"let\" binding, got: :#{Atom.to_string(lexer.token)}"
             )
         end
 
-      %Lexer{value: "deffn"} ->
+      %Lexer{value: "deffn"} = lexer ->
         Lexer.shift(pid)
         fn_name = parse_ident(pid)
 
@@ -325,14 +414,27 @@ defmodule Elil.Parser do
 
         {:ok, body} =
           parse_scope_term_list(pid)
-          |> then(&{elem(&1, 0), struct!(Node, type: Node.Type.scope(), params: elem(&1, 1))})
+          |> then(
+            &{elem(&1, 0),
+             struct!(Node,
+               type: Node.Type.scope(),
+               params: elem(&1, 1),
+               source_location: lexer.source_location
+             )}
+          )
 
         Lexer.shift(pid)
 
         params = [fn_params: fn_params, fn_body: body]
-        struct!(Node, type: Node.Type.deffn(), body: fn_name, params: params)
 
-      %Lexer{value: "if"} ->
+        struct!(Node,
+          type: Node.Type.deffn(),
+          body: fn_name,
+          params: params,
+          source_location: lexer.source_location
+        )
+
+      %Lexer{value: "if"} = lexer ->
         %Lexer{token: :oparen} = Lexer.shift(pid)
         Lexer.shift(pid)
         {:ok, c} = parse_term(pid)
@@ -354,7 +456,13 @@ defmodule Elil.Parser do
         # @see logging erros this just hard fails, it should probably have a nice message :)
         %Lexer{token: :cparen} = Lexer.current(pid)
         Lexer.shift(pid)
-        struct!(Node, type: Node.Type.cond_if(), body: c, params: [then: t, else: e])
+
+        struct!(Node,
+          type: Node.Type.cond_if(),
+          body: c,
+          params: [then: t, else: e],
+          source_location: lexer.source_location
+        )
 
       %Lexer{} = lexer ->
         todo("unhandled keyword: \"#{lexer.value}\"")
@@ -367,13 +475,13 @@ defmodule Elil.Parser do
       true ->
         :ok
 
-      # TODO: @see logging errors
       false ->
         expected_tokens
         |> Enum.map(fn t -> "\":#{Atom.to_string(t)}\"" end)
         |> Enum.join(", ")
         |> then(
           &Elil.Logger.error_log_and_die(
+            lexer,
             "expected one of [\":#{&1}\"], but got \":#{Atom.to_string(lexer.token)}\""
           )
         )
@@ -395,6 +503,7 @@ defmodule Elil.Parser do
       # TODO: @see logging errors
       _ ->
         Elil.Logger.error_log_and_die(
+          lexer,
           "expected \":#{Atom.to_string(expected_token)}\", but got \":#{Atom.to_string(lexer.token)}\""
         )
 

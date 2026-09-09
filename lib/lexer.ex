@@ -1,15 +1,15 @@
 defmodule Elil.Lexer do
   require Elil.Utils
   import Elil.Utils
+  alias Elil.Utils.SourceLocation
   import Elil.Logger
   use GenServer
 
-  @enforce_keys [:token, :value, :row, :col]
+  @enforce_keys [:token, :value, :source_location]
   defstruct [
     :token,
     :value,
-    :row,
-    :col
+    :source_location
   ]
 
   defmodule Context do
@@ -18,7 +18,8 @@ defmodule Elil.Lexer do
       :src_rest,
       :total_newlines,
       :chars_since_last_newline,
-      :skip_comments
+      :skip_comments,
+      :file_path
     ]
 
     def current_column(%Context{chars_since_last_newline: col}), do: col + 1
@@ -118,7 +119,8 @@ defmodule Elil.Lexer do
       src_rest: contents,
       total_newlines: 0,
       chars_since_last_newline: 0,
-      skip_comments: skip_comments
+      skip_comments: skip_comments,
+      file_path: file_path
     }
 
     {:ok, %LexerState{file_path: file_path, context: context, current_token: nil}}
@@ -328,8 +330,12 @@ defmodule Elil.Lexer do
     lexer = %__MODULE__{
       token: token,
       value: value,
-      row: Context.current_row(context),
-      col: Context.current_column(context)
+      source_location:
+        struct!(SourceLocation,
+          row: Context.current_row(context),
+          column: Context.current_column(context),
+          file_path: context.file_path
+        )
     }
 
     {:ok, struct!(context, context_updates), lexer}

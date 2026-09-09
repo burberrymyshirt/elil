@@ -65,4 +65,8 @@ defmodule Elil.Utils do
       unquote(char) in [?\t, ?\r, ?\s, ?\t]
     end
   end
+
+  defmodule SourceLocation do
+    defstruct [:file_path, :row, :column]
+  end
 end
