@@ -1,0 +1,7 @@
+; define a new function that takes one argument
+(deffn rec (i:int) (
+    (echo i "\n")
+    (rec (add i 1))))
+
+; invoke function
+(rec 1)
