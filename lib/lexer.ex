@@ -23,8 +23,15 @@ defmodule Elil.Lexer do
     ]
 
     def current_column(%Context{chars_since_last_newline: col}), do: col + 1
-
     def current_row(%Context{total_newlines: nl}), do: nl + 1
+
+    def location(%Context{} = context) do
+      struct!(SourceLocation,
+        row: current_row(context),
+        column: current_column(context),
+        file_path: context.file_path
+      )
+    end
   end
 
   @keywords ["let", "ass", "deffn", "if"]
@@ -303,12 +310,7 @@ defmodule Elil.Lexer do
           {value, type, rest}
 
         {:error, msg} ->
-          # TODO: @see logging errors we need the filepath provided in here. We have it in lexer state.
-          error_log_and_die(
-            "no filepath found",
-            {context.total_newlines, context.chars_since_last_newline},
-            msg
-          )
+          error_log_and_die(Context.location(context), msg)
       end
 
     context_updates = [

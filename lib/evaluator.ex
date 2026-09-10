@@ -153,7 +153,6 @@ defmodule Elil.Evaluator do
           %Context{} = state
         )
         when type != :void and is_binary(var_name) do
-
       # TODO: make local variables when we introduce functions
       case do_reassign_let(var_name, state.scopes, value) do
         # scopes cannot change if the variable is undefined, so ignore them.
@@ -449,7 +448,7 @@ defmodule Elil.Evaluator do
         |> Value.new(Value.Type.void())
 
       _ ->
-        {:err, "symbol \"#{func}\" is not defined as either a function or variable"}
+        {:err, "symbol \"#{func}\" is not a defined symbol"}
     end
   end
 

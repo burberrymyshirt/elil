@@ -86,7 +86,14 @@ defmodule Elil.Parser do
           # handle nested scopes
           %Lexer{token: :oparen} = lexer ->
             {:ok, list} = parse_scope_term_list(pid)
-            node = struct!(Node, type: Node.Type.scope(), params: list, source_location: lexer.source_location)
+
+            node =
+              struct!(Node,
+                type: Node.Type.scope(),
+                params: list,
+                source_location: lexer.source_location
+              )
+
             parse_root_term_list(pid, [node | acc])
 
           # handle standalone terms

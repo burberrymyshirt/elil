@@ -1,4 +1,7 @@
 Current and pressing bugs:
+[] errors from the lexer should be passed to the parser and letting that error log I think.
+   It looks kind of ugly that the GenServer shutdown message is printed to the user as well.
+
 [] recursive functions. This will enable looping, which is an essential feature for any usable language.
 [] examples/full.elil doesn't print numbers as string. It prints the literal char 'E',
    as that is the ascii charater of the digit 69. Types should probably be passed from
