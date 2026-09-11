@@ -37,6 +37,17 @@ defmodule Elil.Evaluator do
       struct!(Value, type: Type.void())
     end
 
+    def new(v, :bool) do
+      c =
+        if v do
+          Type.bool_true()
+        else
+          Type.bool_false()
+        end
+
+      new(nil, c)
+    end
+
     def new(_v, :bool_true) do
       struct!(Value, type: Type.bool_true(), value: 1)
     end
@@ -67,6 +78,18 @@ defmodule Elil.Evaluator do
         end
 
       struct!(Value, type: Type.int(), value: v)
+    end
+
+    def lt(%Value{type: :int} = lt, %Value{type: :int} = gt) do
+      new(raw_int(lt) < raw_int(gt), :bool)
+    end
+
+    defp raw_int(%Value{type: :int, value: val} = _v) when is_binary(val) do
+      String.to_integer(val, 10)
+    end
+
+    defp raw_int(%Value{type: :int, value: val} = _v) when is_integer(val) do
+      val
     end
   end
 
@@ -334,6 +357,10 @@ defmodule Elil.Evaluator do
 
   defp eval_node(pid, %Node{type: :deffn} = node) when is_pid(pid) do
     eval_deffn(pid, node)
+  end
+
+  defp eval_node(pid, %Node{type: :lt} = node) when is_pid(pid) do
+    eval_bool(pid, node)
   end
 
   # an ident from the parser is expected to be a name of a variable or function.
@@ -644,5 +671,26 @@ defmodule Elil.Evaluator do
       # TODO: @see logging errors
       _ -> Elil.Logger.error_log_and_die("idk")
     end)
+  end
+
+  defp expect_parameter_count(%Node{params: params} = node, count)
+       when is_list(params) and is_integer(count) do
+    if length(node.params) === count do
+      {:ok}
+    else
+      Elil.Logger.error_log_and_die(
+        node,
+        "function: \"#{node.body}\" expected #{Integer.to_string(count)} amount of argumnets, but got: #{length(node.params)}"
+      )
+    end
+  end
+
+  defp eval_bool(pid, %Node{type: :lt} = node) do
+    expect_parameter_count(node, 2)
+    [lt | tail] = node.params
+    [gt | _] = tail
+    lt = %Value{type: :int} = eval_node(pid, lt)
+    gt = %Value{type: :int} = eval_node(pid, gt)
+    Value.lt(lt, gt)
   end
 end

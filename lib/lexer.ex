@@ -34,7 +34,11 @@ defmodule Elil.Lexer do
     end
   end
 
-  @keywords ["let", "ass", "deffn", "if"]
+  # TODO: I kind of want keywords to be defined tokens rather than handling it like this.
+  #  Doing that makes the parser interface way cleaner by enabling parsing with the same
+  #  API all the way through, rather than switching between matching on the function vs
+  #  matching my using case statements.
+  @keywords ["let", "ass", "deffn", "if", "lt", "lte", "gt", "gte", "eq", "not"]
 
   defmodule Token do
     @compile {:inline,

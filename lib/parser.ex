@@ -20,6 +20,7 @@ defmodule Elil.Parser do
                 dqstr: 0,
                 int: 0,
                 let: 0,
+                lt: 0,
                 ass: 0,
                 ident: 0,
                 deffn: 0,
@@ -31,6 +32,7 @@ defmodule Elil.Parser do
       def dqstr(), do: :dqstr
       def int(), do: :int
       def let(), do: :let
+      def lt(), do: :lt
       def ass(), do: :ass
       def ident(), do: :ident
       def deffn(), do: :deffn
@@ -121,6 +123,9 @@ defmodule Elil.Parser do
             {:ok, list} = parse_scope_term_list(pid)
             parse_scope_term_list(pid, [list | acc])
         end
+
+      %Lexer{} ->
+        {:err, "A scope is expected to start with an opening parenthesis"}
     end
   end
 
@@ -365,6 +370,9 @@ defmodule Elil.Parser do
 
     #  TLDR; I don't know which of the approaches are better, but the one explained here leaves for
     #  more flexibility in the future maybe.
+
+    # TODO: much of this code looks similar. I feel like we could do it in a much simpler manner.
+    #  Especially since much of it looks like something out of parse_term() when hitting an ident.
     case Lexer.current(pid) do
       %Lexer{value: "let"} ->
         case Lexer.shift(pid) do
@@ -441,12 +449,37 @@ defmodule Elil.Parser do
           source_location: lexer.source_location
         )
 
+      %Lexer{value: "lt"} = lexer ->
+        Lexer.shift(pid)
+        {:ok, params} = parse_params(pid)
+
+        struct!(Node,
+          type: Node.Type.lt(),
+          body: lexer.value,
+          params: params,
+          source_location: lexer.source_location
+        )
+
       %Lexer{value: "if"} = lexer ->
         %Lexer{token: :oparen} = Lexer.shift(pid)
         Lexer.shift(pid)
         {:ok, c} = parse_term(pid)
-        Lexer.shift(pid)
-        {:ok, t} = parse_term(pid)
+        %Lexer{} = then_start = Lexer.shift(pid)
+
+        {:ok, t} =
+          case parse_scope_term_list(pid) do
+            # Allow single terms not to be wrapped in a scope.
+            {:err, _msg} ->
+              parse_term(pid)
+
+            {:ok, l} ->
+              {:ok,
+               struct!(Node,
+                 type: Node.Type.scope(),
+                 params: l,
+                 source_location: then_start.source_location
+               )}
+          end
 
         e =
           case Lexer.current(pid) do

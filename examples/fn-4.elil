@@ -1,0 +1,11 @@
+; define a new function that takes one argument
+
+; TODO: doesn't parse correctly as of right now.
+(deffn rec (i:int) (
+  (if (lt i 500)
+    ((echo i "\n")
+      (rec (add i 1)))
+  )))
+
+; invoke function
+(rec 1)

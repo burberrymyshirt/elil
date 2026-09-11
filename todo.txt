@@ -2,7 +2,11 @@ Current and pressing bugs:
 [] errors from the lexer should be passed to the parser and letting that error log I think.
    It looks kind of ugly that the GenServer shutdown message is printed to the user as well.
 
-[] recursive functions. This will enable looping, which is an essential feature for any usable language.
+[] recursive functions work just fine. They are however extremely fucking slow.
+   This is probably primarily because the function always looks through the entire scope stack.
+   It is also just slow in nature, but this is by far the biggest contributer right now.
+
+
 [] examples/full.elil doesn't print numbers as string. It prints the literal char 'E',
    as that is the ascii charater of the digit 69. Types should probably be passed from
    the parser to the evaluator, instead of just passing lit. But I think its because
@@ -25,9 +29,14 @@ Todos and wants
  - [] add actual argument validation to the add function.
  - [] type juggling to print whatever values are there. Possibly some format print.
 
+[] conditional operators & boolean operators. "if", "and", "or", "not" etc.
+[] gt and lt only support integers. fine for now, but will become annoying later I think.
+
+[] Figure out which builtins should actually be keywords vs "regular" function calls.
+   I feel like the ones that don't require special syntax don't need to be marked as kwd.
+
 [x] let bindings.
  - @see global_namespace issue below
-[] conditional operators & boolean operators. "if", "and", "or", "not" etc.
 [] Define functions.
   - [] Lambdas first.
   - [] Closures to capture scope.
