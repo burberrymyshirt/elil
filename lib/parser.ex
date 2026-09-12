@@ -464,29 +464,16 @@ defmodule Elil.Parser do
         %Lexer{token: :oparen} = Lexer.shift(pid)
         Lexer.shift(pid)
         {:ok, c} = parse_term(pid)
-        %Lexer{} = then_start = Lexer.shift(pid)
+        Lexer.shift(pid)
 
-        {:ok, t} =
-          case parse_scope_term_list(pid) do
-            # Allow single terms not to be wrapped in a scope.
-            {:err, _msg} ->
-              parse_term(pid)
-
-            {:ok, l} ->
-              {:ok,
-               struct!(Node,
-                 type: Node.Type.scope(),
-                 params: l,
-                 source_location: then_start.source_location
-               )}
-          end
+        {:ok, t} = parse_if_branch(pid)
 
         e =
           case Lexer.current(pid) do
             %Lexer{token: :oparen} ->
               Lexer.shift(pid)
 
-              parse_term(pid)
+              parse_if_branch(pid)
               |> then(fn {:ok, e} -> e end)
 
             _ ->
@@ -548,6 +535,23 @@ defmodule Elil.Parser do
         )
 
         :err
+    end
+  end
+
+  defp parse_if_branch(pid) when is_pid(pid) do
+    then_start = Lexer.current(pid)
+    case parse_scope_term_list(pid) do
+      # Allow single terms not to be wrapped in a scope.
+      {:err, _msg} ->
+        parse_term(pid)
+
+      {:ok, l} ->
+        {:ok,
+         struct!(Node,
+           type: Node.Type.scope(),
+           params: l,
+           source_location: then_start.source_location
+         )}
     end
   end
 end

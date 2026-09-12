@@ -1,0 +1,15 @@
+
+; TODO: this should obviously fail
+
+(deffn foo (i:int) (
+    (if (lt i 10)
+    (
+        (let a 20)
+        (foo a)
+    )
+    (
+        (echo a "\n")
+    ))
+))
+
+(foo 5)

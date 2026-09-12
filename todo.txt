@@ -1,4 +1,8 @@
 Current and pressing bugs:
+
+[] lexical scopes should be better defined. @see examples/break-shit.elil
+ - [] In this iteration we shouuld probably fix the terrible symbol lookup algorithm.
+
 [] errors from the lexer should be passed to the parser and letting that error log I think.
    It looks kind of ugly that the GenServer shutdown message is printed to the user as well.
 
