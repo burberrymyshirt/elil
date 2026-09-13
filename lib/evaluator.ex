@@ -12,13 +12,16 @@ defmodule Elil.Evaluator do
     ]
 
     defmodule Type do
-      @compile {:inline, int: 0, void: 0, string: 0, bool_false: 0, bool_true: 0, func: 0}
+      @compile {:inline,
+                int: 0, void: 0, string: 0, bool_false: 0, bool_true: 0, func: 0, bool_type: 1}
       def int(), do: :int
       def void(), do: :void
       def string(), do: :string
       def func(), do: :func
       def bool_true(), do: :bool_true
       def bool_false(), do: :bool_false
+      def bool_type(false), do: bool_false()
+      def bool_type(true), do: bool_true()
     end
 
     defimpl String.Chars, for: __MODULE__ do
@@ -38,14 +41,7 @@ defmodule Elil.Evaluator do
     end
 
     def new(v, :bool) do
-      c =
-        if v do
-          Type.bool_true()
-        else
-          Type.bool_false()
-        end
-
-      new(nil, c)
+      new(nil, Type.bool_type(v))
     end
 
     def new(_v, :bool_true) do
@@ -177,9 +173,10 @@ defmodule Elil.Evaluator do
         )
         when type != :void and is_binary(var_name) do
       # TODO: make local variables when we introduce functions
-      case do_reassign_let(var_name, state.scopes, value) do
+      case do_reassign_let2(var_name, state.scopes, value) do
         # scopes cannot change if the variable is undefined, so ignore them.
-        {:undefined} ->
+        {:undefined, _} ->
+          dump(state.scopes)
           {:reply, {:undefined}, state}
 
         {:ok, scopes} ->
@@ -214,52 +211,24 @@ defmodule Elil.Evaluator do
       end
     end
 
-    defp do_reassign_let(name, scopes, value, acc \\ [], state \\ :undefined)
-
-    defp do_reassign_let(name, scopes, %Value{}, acc, state)
-         when is_binary(name) and is_list(scopes) and 0 === length(scopes) and is_atom(state) do
-      {state, Enum.reverse(acc)}
+    defp do_reassign_let2(_name, scopes, %Value{} = _value) when length(scopes) <= 0 do
+      {:undefined, nil}
     end
 
-    defp do_reassign_let(name, scopes, %Value{} = value, acc, state)
-         when is_list(acc) and is_atom(state) and is_binary(name) and is_list(scopes) do
-      # This loops through the entire stack of scopes. A better solution would
-      # be to just short circuit the recursion once we hit the first actual
-      # reassignment, but I cannot seem to express that correctly yet, so this
-      # will do for now. The idea was to not have acc and state at all, but I
-      # couldn't get that working, so this was made to just get on with my life.
+    defp do_reassign_let2(name, scopes, %Value{} = value)
+         when is_binary(name) and is_list(scopes) do
+      [head | tail] = scopes
 
-      [scope | rest] = scopes
-
-      {state, scope} =
-        case state do
-          # @see above comment for why this was done.
-          # This is so we don't reassign every single variable of the given name,
-          # once we hit the first successful reassignment.
-          :ok ->
-            {:ok, scope}
-
-          _ ->
-            case do_reassign_single_let(scope, name, value) do
-              {:ok, scope} ->
-                {:ok, scope}
-
-              {:undefined} ->
-                {state, scope}
-            end
+      {status, head} =
+        if Map.has_key?(head.symbols, name) do
+          head = struct!(head, symbols: Map.put(head.symbols, name, value))
+          {:ok, head}
+        else
+          do_reassign_let2(name, tail, value)
         end
 
-      do_reassign_let(name, rest, value, [scope | acc], state)
-    end
-
-    defp do_reassign_single_let(%Scope{} = scope, name, %Value{} = value) when is_binary(name) do
-      case Map.has_key?(scope.symbols, name) do
-        false ->
-          {:undefined}
-
-        true ->
-          {:ok, struct!(scope, symbols: Map.put(scope.symbols, name, value))}
-      end
+      scopes = [head | tail]
+      {status, scopes}
     end
   end
 

@@ -540,6 +540,7 @@ defmodule Elil.Parser do
 
   defp parse_if_branch(pid) when is_pid(pid) do
     then_start = Lexer.current(pid)
+
     case parse_scope_term_list(pid) do
       # Allow single terms not to be wrapped in a scope.
       {:err, _msg} ->
