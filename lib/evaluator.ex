@@ -210,24 +210,17 @@ defmodule Elil.Evaluator do
       end
     end
 
-    defp do_reassign_let(_name, scopes, %Value{} = _value) when length(scopes) <= 0 do
-      {:undefined, nil}
-    end
+    defp do_reassign_let(_name, [], %Value{} = _value), do: {:undefined, nil}
 
-    defp do_reassign_let(name, scopes, %Value{} = value)
-         when is_binary(name) and is_list(scopes) do
-      [head | tail] = scopes
-
-      {status, head} =
-        if Map.has_key?(head.symbols, name) do
-          head = struct!(head, symbols: Map.put(head.symbols, name, value))
-          {:ok, head}
-        else
-          do_reassign_let(name, tail, value)
+    defp do_reassign_let(name, [scope | rest], %Value{} = value) when is_binary(name) do
+      if Map.has_key?(scope.symbols, name) do
+        {:ok, [struct!(scope, symbols: Map.put(scope.symbols, name, value)) | rest]}
+      else
+        case do_reassign_let(name, rest, value) do
+          {:ok, rest} -> {:ok, [scope | rest]}
+          {:undefined, _} -> {:undefined, nil}
         end
-
-      scopes = [head | tail]
-      {status, scopes}
+      end
     end
   end
 
