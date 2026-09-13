@@ -173,10 +173,9 @@ defmodule Elil.Evaluator do
         )
         when type != :void and is_binary(var_name) do
       # TODO: make local variables when we introduce functions
-      case do_reassign_let2(var_name, state.scopes, value) do
+      case do_reassign_let(var_name, state.scopes, value) do
         # scopes cannot change if the variable is undefined, so ignore them.
         {:undefined, _} ->
-          dump(state.scopes)
           {:reply, {:undefined}, state}
 
         {:ok, scopes} ->
@@ -211,11 +210,11 @@ defmodule Elil.Evaluator do
       end
     end
 
-    defp do_reassign_let2(_name, scopes, %Value{} = _value) when length(scopes) <= 0 do
+    defp do_reassign_let(_name, scopes, %Value{} = _value) when length(scopes) <= 0 do
       {:undefined, nil}
     end
 
-    defp do_reassign_let2(name, scopes, %Value{} = value)
+    defp do_reassign_let(name, scopes, %Value{} = value)
          when is_binary(name) and is_list(scopes) do
       [head | tail] = scopes
 
@@ -224,7 +223,7 @@ defmodule Elil.Evaluator do
           head = struct!(head, symbols: Map.put(head.symbols, name, value))
           {:ok, head}
         else
-          do_reassign_let2(name, tail, value)
+          do_reassign_let(name, tail, value)
         end
 
       scopes = [head | tail]
@@ -508,10 +507,10 @@ defmodule Elil.Evaluator do
     %Value{} = value = eval_node(pid, head)
 
     case Context.reassign_let(pid, node.body, value) do
-      {:already_exists} ->
+      {:undefined} ->
         Elil.Logger.error_log_and_die(
           node,
-          "symbol \"#{to_string(node.body)}\" has already been previously defined"
+          "symbol \"#{to_string(node.body)}\" is undefined. To reassign something you need to define it first, using something like the \"let\" keyword."
         )
 
       _ ->
