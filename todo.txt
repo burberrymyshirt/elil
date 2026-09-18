@@ -45,7 +45,9 @@ Todos and wants
   - [] Lambdas first.
   - [] Closures to capture scope.
 
-[] Adding meta to the parser, so we can error report properly.
+[x] Adding meta to the parser, so we can error report properly.
+ - [] Some basic error handling was done, but there is still more to go in the more hacky areas.
+
 [] Just better errors in general for parsing errors and undefined stuff or whatever.
    E.g. if parsing fails with an unknown node, it should not fall into a "** (CaseClauseError) no case clause matching:" error
  - [] redo the lexer, as the do_lex() function does not know about the rest of the lexer state.
