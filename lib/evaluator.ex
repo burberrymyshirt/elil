@@ -195,15 +195,12 @@ defmodule Elil.Evaluator do
       end
     end
 
-    defp do_get_symbol(name, scopes) when is_binary(name) and is_list(scopes) do
-      [scope | rest_scopes] = scopes
+    defp do_get_symbol(name, []) when is_binary(name), do: {:undefined}
 
+    defp do_get_symbol(name, [scope | rest_scopes]) when is_binary(name) do
       case Map.get(scope.symbols, name) do
         nil ->
-          case 0 === length(rest_scopes) do
-            true -> {:undefined}
-            false -> do_get_symbol(name, rest_scopes)
-          end
+          do_get_symbol(name, rest_scopes)
 
         %Value{} = value ->
           {:ok, value}

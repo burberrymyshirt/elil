@@ -1,8 +1,7 @@
 ; define a new function that takes one argument
 
-; TODO: doesn't parse correctly as of right now.
 (deffn rec (i:int) (
-  (if (lt i 500)
+  (if (lt i 5000)
     ((echo i "\n")
       (rec (add i 1)))
   )))
