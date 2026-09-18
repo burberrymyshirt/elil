@@ -7,9 +7,7 @@
         (let a 20)
         (foo a)
     )
-    (
-        (echo a "\n")
-    ))
+    (echo a "\n"))
 ))
 
 (foo 5)
