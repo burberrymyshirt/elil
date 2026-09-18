@@ -53,11 +53,11 @@ defmodule Elil.Cmd do
     end
   end
 
-  defp handle_options(options) when is_list(options) and length(options) === 0 do
+  defp handle_options([])do
     :ok
   end
 
-  defp handle_options(options) when is_list(options) and length(options) > 0 do
+  defp handle_options(options) when is_list(options) do
     # TODO: idk maybe make this an agent as to not pollute fututre env functions introduced in Elil. ¯\_(ツ)_/¯
     options
     |> Enum.map(fn {k, v} -> {Atom.to_string(k), v} end)

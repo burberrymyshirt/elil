@@ -566,13 +566,11 @@ defmodule Elil.Evaluator do
 
   defp resolve_func_params(v, acc \\ [])
 
-  defp resolve_func_params(v, acc) when is_list(v) and 0 === length(v) do
+  defp resolve_func_params([], acc) do
     {:ok, Enum.reverse(acc)}
   end
 
-  defp resolve_func_params(v, acc) when is_list(v) do
-    [head | tail] = v
-
+  defp resolve_func_params([head | tail], acc) do
     if not is_valid_type(Keyword.get(head.params, :type)) do
       Elil.Logger.error_log_and_die(head, "invalid type given for argument")
     end
