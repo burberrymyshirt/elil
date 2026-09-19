@@ -287,7 +287,7 @@ defmodule Elil.Evaluator do
       "echo" ->
         Enum.map(args, &eval_node(pid, &1))
         |> Enum.map(&to_string/1)
-        # |> Enum.map(&IO.write/1)
+        |> Enum.map(&IO.write/1)
         |> Value.new(Value.Type.void())
 
       "eval" ->
