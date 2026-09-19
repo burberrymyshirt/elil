@@ -1,6 +1,6 @@
 defmodule Elil.Parser do
   alias Elil.Utils.SourceLocation
-  alias Elil.Lexer, as: Lexer
+  alias Elil.Lexer
   require Elil.Utils
   import Elil.Utils
 

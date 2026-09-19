@@ -1,6 +1,6 @@
 defmodule Elil.Cmd do
-  alias Elil.Evaluator, as: Evaluator
-  alias Elil.Utils, as: Utils
+  alias Elil.Evaluator
+  alias Elil.Utils
 
   @internal_prefix "_elil_internal"
 
@@ -53,7 +53,7 @@ defmodule Elil.Cmd do
     end
   end
 
-  defp handle_options([])do
+  defp handle_options([]) do
     :ok
   end
 
