@@ -2,6 +2,7 @@
 ; TODO: this should obviously fail
 
 (deffn foo (i:int) (
+    (echo "i is: " i "\n")
     (if (lt i 10)
     (
         (let a 20)
