@@ -31,11 +31,11 @@ defmodule Elil.Lexer do
     def current_row(%Context{total_newlines: nl}), do: nl + 1
 
     def location(%Context{} = context) do
-      struct!(SourceLocation,
+      %SourceLocation{
         row: current_row(context),
         column: current_column(context),
         file_path: context.file_path
-      )
+      }
     end
   end
 
@@ -153,7 +153,7 @@ defmodule Elil.Lexer do
       do_lex(lexer_state.context)
 
     {:reply, lexer,
-     struct!(lexer_state, context: context, current_token: lexer)}
+     %LexerState{lexer_state | context: context, current_token: lexer}}
   end
 
   @impl true
@@ -352,7 +352,7 @@ defmodule Elil.Lexer do
   # the context with row and col, but not return an actual token.
   defp continue_lex(%Context{} = context, context_updates)
        when is_list(context_updates) do
-    do_lex(struct!(context, context_updates))
+    do_lex(%Context{context | context_updates})
   end
 
   defp return_lex({token, value}, %Context{} = context, context_updates)
@@ -360,15 +360,14 @@ defmodule Elil.Lexer do
     lexer = %__MODULE__{
       token: token,
       value: value,
-      source_location:
-        struct!(SourceLocation,
-          row: Context.current_row(context),
-          column: Context.current_column(context),
-          file_path: context.file_path
-        )
+      source_location: %SourceLocation{
+        row: Context.current_row(context),
+        column: Context.current_column(context),
+        file_path: context.file_path
+      }
     }
 
-    {:ok, struct!(context, context_updates), lexer}
+    {:ok, %Context{context | context_updates}, lexer}
   end
 
   defp parse_identifier(%Context{src_rest: rest}), do: do_parse_identifier(rest)

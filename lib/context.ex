@@ -48,12 +48,12 @@ defmodule Elil.Context do
 
   @impl true
   def init(_initial) do
-    {:ok, struct!(__MODULE__)}
+    {:ok, %__MODULE__{}}
   end
 
   @impl true
   def handle_call({:push_frame}, _from, %__MODULE__{} = state) do
-    frame = struct(Frame, scopes: [struct!(Scope)])
+    frame = struct(Frame, scopes: [%Scope{}])
     state = %__MODULE__{state | frames: [frame | state.frames]}
     {:reply, {:ok}, state}
   end
@@ -218,7 +218,7 @@ defmodule Elil.Context do
        when is_binary(name) do
     if Map.has_key?(scope.symbols, name) do
       {:ok,
-       [struct!(scope, symbols: Map.put(scope.symbols, name, value)) | rest]}
+       [%Scope{scope | symbols: Map.put(scope.symbols, name, value)} | rest]}
     else
       case do_reassign_scope(name, rest, value) do
         {:ok, rest} -> {:ok, [scope | rest]}
