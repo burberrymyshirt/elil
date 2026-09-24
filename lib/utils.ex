@@ -94,6 +94,8 @@ defmodule Elil.Utils do
     second_start = System.monotonic_time(:microsecond)
     second_res = apply(second, second_args)
     second_end = System.monotonic_time(:microsecond)
-    {{first_res, first_end - first_start}, {second_res, second_end - second_start}}
+
+    {{first_res, first_end - first_start},
+     {second_res, second_end - second_start}}
   end
 end

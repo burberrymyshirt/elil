@@ -41,7 +41,9 @@ defmodule Elil.Cmd do
       true ->
         case File.open(file_path, [:utf8, :read_ahead]) do
           {:error, reason} ->
-            Utils.print_usage("Couldn't open file #{file_path}. Reason: #{to_string(reason)}")
+            Utils.print_usage(
+              "Couldn't open file #{file_path}. Reason: #{to_string(reason)}"
+            )
 
           {:ok, fd} ->
             Evaluator.eval(fd, file_path)

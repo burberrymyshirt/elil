@@ -15,7 +15,13 @@ defmodule Elil.Evaluator do
 
     defmodule Type do
       @compile {:inline,
-                int: 0, void: 0, string: 0, bool_false: 0, bool_true: 0, func: 0, bool_type: 1}
+                int: 0,
+                void: 0,
+                string: 0,
+                bool_false: 0,
+                bool_true: 0,
+                func: 0,
+                bool_type: 1}
       def int(), do: :int
       def void(), do: :void
       def string(), do: :string
@@ -66,13 +72,22 @@ defmodule Elil.Evaluator do
     def new(v, :int) when not is_nil(v) do
       v =
         case v do
-          v when is_integer(v) -> v
+          v when is_integer(v) ->
+            v
+
           # TODO: handle more than just base 10
-          v when is_binary(v) -> Integer.parse(v, 10) |> elem(0)
+          v when is_binary(v) ->
+            Integer.parse(v, 10) |> elem(0)
+
           # TODO: handle more than just base 10
-          v when is_list(v) -> Integer.parse(List.to_string(v), 10) |> elem(0)
+          v when is_list(v) ->
+            Integer.parse(List.to_string(v), 10) |> elem(0)
+
           # @see logging errors
-          v -> Elil.Logger.error_log_and_die("unable to parse value \"#{v}\" to an integer")
+          v ->
+            Elil.Logger.error_log_and_die(
+              "unable to parse value \"#{v}\" to an integer"
+            )
         end
 
       struct!(Value, type: Type.int(), value: v)
@@ -130,7 +145,9 @@ defmodule Elil.Evaluator do
       Lexer.lex_entire_file(file, file_path, &IO.inspect(&1))
       :ok
     else
-      {:ok, lexer_pid} = GenServer.start_link(Lexer, {file_path, file}, hibernate_after: 100)
+      {:ok, lexer_pid} =
+        GenServer.start_link(Lexer, {file_path, file}, hibernate_after: 100)
+
       {:ok, root_node} = Elil.Parser.parse(lexer_pid)
       GenServer.stop(lexer_pid)
       %Node{type: :root} = root_node
@@ -174,7 +191,8 @@ defmodule Elil.Evaluator do
     {:ok} = Context.pop_scope(pid)
   end
 
-  defp eval_node(pid, %Node{type: type} = node) when is_pid(pid) and is_lit(type) do
+  defp eval_node(pid, %Node{type: type} = node)
+       when is_pid(pid) and is_lit(type) do
     eval_lit(pid, node)
   end
 
@@ -238,7 +256,8 @@ defmodule Elil.Evaluator do
   # TODO: could be merged with the eval_params/2 above, idk if it is actually important that the body is nil.
   #  I just wanna assert as much as possible right now. I don't know if we need named scopes in the future,
   #  but in that case I would like to keep the assert for now so I know where refactoring is needed.
-  defp eval_params(pid, %Node{type: type} = node) when is_pid(pid) and type in [:let, :ident] do
+  defp eval_params(pid, %Node{type: type} = node)
+       when is_pid(pid) and type in [:let, :ident] do
     node.params
     |> Enum.map(&eval_node(pid, &1))
   end
@@ -250,7 +269,8 @@ defmodule Elil.Evaluator do
     end
   end
 
-  defp eval_func(pid, func, args) when is_binary(func) and is_list(args) and is_pid(pid) do
+  defp eval_func(pid, func, args)
+       when is_binary(func) and is_list(args) and is_pid(pid) do
     # TODO: @see logging errors the current logging just bubbles up to the calling function,
     # which doesn't take specific arguments or anything into account. Good enough
     # for now, but at a later point, I would like to have errors be more pin-pointable and direct
@@ -263,13 +283,15 @@ defmodule Elil.Evaluator do
         end)
         |> Enum.reduce(0, fn
           {v, rem}, _acc when is_list(rem) and length(rem) > 0 ->
-            {:err, "function add() expects only integers as arguments, got #{v}"}
+            {:err,
+             "function add() expects only integers as arguments, got #{v}"}
 
           {v, _rem}, acc when is_integer(v) ->
             v + acc
 
           v, _acc ->
-            {:err, "function add() expects only integers as arguments, got #{v}"}
+            {:err,
+             "function add() expects only integers as arguments, got #{v}"}
         end)
         |> Value.new(Value.Type.int())
 
@@ -282,13 +304,15 @@ defmodule Elil.Evaluator do
         end)
         |> Enum.reduce(0, fn
           {v, rem}, _acc when is_list(rem) and length(rem) > 0 ->
-            {:err, "function sub() expects only integers as arguments, got #{v}"}
+            {:err,
+             "function sub() expects only integers as arguments, got #{v}"}
 
           {v, _rem}, acc when is_integer(v) ->
             v + acc
 
           v, _acc ->
-            {:err, "function sub() expects only integers as arguments, got #{v}"}
+            {:err,
+             "function sub() expects only integers as arguments, got #{v}"}
         end)
         |> Value.new(Value.Type.int())
 
@@ -331,7 +355,8 @@ defmodule Elil.Evaluator do
     Value.new(node.body, Value.Type.string())
   end
 
-  defp define_symbol(pid, %Node{type: :deffn} = node, into) when is_atom(into) do
+  defp define_symbol(pid, %Node{type: :deffn} = node, into)
+       when is_atom(into) do
     value = Value.new(node.params, Value.Type.func())
     do_define_symbol(pid, node.body, value, into, node.source_location)
   end
@@ -346,7 +371,13 @@ defmodule Elil.Evaluator do
     do_define_symbol(pid, node.body, value, into, node.source_location)
   end
 
-  defp do_define_symbol(pid, name, %Value{} = value, into, %SourceLocation{} = source_location)
+  defp do_define_symbol(
+         pid,
+         name,
+         %Value{} = value,
+         into,
+         %SourceLocation{} = source_location
+       )
        when is_pid(pid) and is_binary(name) and is_atom(into) do
     case Context.define_symbol(pid, name, value, into) do
       :already_exists ->
@@ -492,10 +523,13 @@ defmodule Elil.Evaluator do
        )
        when is_atom(ptype) and is_atom(atype) do
     # TODO: this only works for literals with no parameters. Maybe not the best idea.
-    {:ok, {parameter.body, struct!(Value, type: argument.type, value: argument.value)}}
+    {:ok,
+     {parameter.body,
+      struct!(Value, type: argument.type, value: argument.value)}}
   end
 
-  defp expect_all(values, struct_type) when is_list(values) and is_atom(struct_type) do
+  defp expect_all(values, struct_type)
+       when is_list(values) and is_atom(struct_type) do
     values
     |> Enum.each(fn
       v when is_struct(v, struct_type) -> :ok

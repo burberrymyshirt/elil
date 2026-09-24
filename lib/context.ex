@@ -22,7 +22,8 @@ defmodule Elil.Context do
   def pop_scope(pid) when is_pid(pid), do: GenServer.call(pid, {:pop_scope})
 
   def define_symbol(pid, var_name, %Value{type: type} = value, into)
-      when is_pid(pid) and is_binary(var_name) and type !== :void and is_atom(into) do
+      when is_pid(pid) and is_binary(var_name) and type !== :void and
+             is_atom(into) do
     # TODO: @see logging errors
     # cannot assign void to anything, so we hard fail for now
 
@@ -65,14 +66,22 @@ defmodule Elil.Context do
   end
 
   @impl true
-  def handle_call({:push_scope}, _from, %__MODULE__{frames: [%Frame{} = first | rest]} = state) do
+  def handle_call(
+        {:push_scope},
+        _from,
+        %__MODULE__{frames: [%Frame{} = first | rest]} = state
+      ) do
     frame = %Frame{first | scopes: [%Scope{} | first.scopes]}
     state = %__MODULE__{state | frames: [frame | rest]}
     {:reply, {:ok}, state}
   end
 
   @impl true
-  def handle_call({:pop_scope}, _from, %__MODULE__{frames: [%Frame{} = frame | rest]} = state) do
+  def handle_call(
+        {:pop_scope},
+        _from,
+        %__MODULE__{frames: [%Frame{} = frame | rest]} = state
+      ) do
     [_ | scopes] = frame.scopes
     frame = %Frame{frame | scopes: scopes}
     state = %__MODULE__{state | frames: [frame | rest]}
@@ -189,7 +198,8 @@ defmodule Elil.Context do
 
   defp do_reassign(_name, [], %Value{} = _value), do: {:undefined, nil}
 
-  defp do_reassign(name, [%Frame{} = frame | rest], %Value{} = value) when is_binary(name) do
+  defp do_reassign(name, [%Frame{} = frame | rest], %Value{} = value)
+       when is_binary(name) do
     case do_reassign_scope(name, frame.scopes, value) do
       {:ok, scopes} ->
         {:ok, [%Frame{frame | scopes: scopes} | rest]}
@@ -207,7 +217,8 @@ defmodule Elil.Context do
   defp do_reassign_scope(name, [%Scope{} = scope | rest], %Value{} = value)
        when is_binary(name) do
     if Map.has_key?(scope.symbols, name) do
-      {:ok, [struct!(scope, symbols: Map.put(scope.symbols, name, value)) | rest]}
+      {:ok,
+       [struct!(scope, symbols: Map.put(scope.symbols, name, value)) | rest]}
     else
       case do_reassign_scope(name, rest, value) do
         {:ok, rest} -> {:ok, [scope | rest]}

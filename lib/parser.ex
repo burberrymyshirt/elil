@@ -60,7 +60,11 @@ defmodule Elil.Parser do
        type: Node.Type.root(),
        params: list,
        source_location:
-         struct!(SourceLocation, row: 0, column: 0, file_path: Lexer.get_file_path(lexer_pid))
+         struct!(SourceLocation,
+           row: 0,
+           column: 0,
+           file_path: Lexer.get_file_path(lexer_pid)
+         )
      }}
   end
 
@@ -108,7 +112,8 @@ defmodule Elil.Parser do
     end
   end
 
-  defp parse_scope_term_list(pid, acc \\ []) when is_pid(pid) and is_list(acc) do
+  defp parse_scope_term_list(pid, acc \\ [])
+       when is_pid(pid) and is_list(acc) do
     case Lexer.current(pid) do
       %Lexer{token: :cparen} ->
         Lexer.shift(pid)
@@ -203,7 +208,11 @@ defmodule Elil.Parser do
         Lexer.shift(pid)
 
         node =
-          struct!(Node, type: Node.Type.int(), body: lit, source_location: lexer.source_location)
+          struct!(Node,
+            type: Node.Type.int(),
+            body: lit,
+            source_location: lexer.source_location
+          )
 
         {:ok, node}
 
@@ -246,7 +255,11 @@ defmodule Elil.Parser do
         body = parse_lit(pid)
 
         parse_params(pid, [
-          struct!(Node, type: Node.Type.int(), body: body, source_location: lexer.source_location)
+          struct!(Node,
+            type: Node.Type.int(),
+            body: body,
+            source_location: lexer.source_location
+          )
           | acc
         ])
 
@@ -524,7 +537,8 @@ defmodule Elil.Parser do
     expect_token(lexer, List.first!(expected_token))
   end
 
-  defp expect_token(%Lexer{} = lexer, expected_token) when is_atom(expected_token) do
+  defp expect_token(%Lexer{} = lexer, expected_token)
+       when is_atom(expected_token) do
     case lexer.token do
       ^expected_token ->
         :ok

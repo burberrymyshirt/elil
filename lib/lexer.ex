@@ -13,7 +13,12 @@ defmodule Elil.Lexer do
   ]
 
   defmodule Context do
-    @enforce_keys [:src_rest, :total_newlines, :chars_since_last_newline, :skip_comments]
+    @enforce_keys [
+      :src_rest,
+      :total_newlines,
+      :chars_since_last_newline,
+      :skip_comments
+    ]
     defstruct [
       :src_rest,
       :total_newlines,
@@ -83,7 +88,9 @@ defmodule Elil.Lexer do
   end
 
   def lex_entire_file(file, file_path, cb \\ nil) do
-    {:ok, pid} = GenServer.start_link(__MODULE__, {file_path, file}, hibernate_after: 100)
+    {:ok, pid} =
+      GenServer.start_link(__MODULE__, {file_path, file}, hibernate_after: 100)
+
     list = do_lex_entire_file(pid, cb, [])
     GenServer.stop(pid)
     list
@@ -118,7 +125,8 @@ defmodule Elil.Lexer do
     GenServer.start_link(__MODULE__, default)
   end
 
-  def init({file_path, contents}) when is_binary(file_path) and is_binary(contents) do
+  def init({file_path, contents})
+      when is_binary(file_path) and is_binary(contents) do
     # Default to skipping comments = true
     init({file_path, contents, true})
   end
@@ -134,14 +142,18 @@ defmodule Elil.Lexer do
       file_path: file_path
     }
 
-    {:ok, %LexerState{file_path: file_path, context: context, current_token: nil}}
+    {:ok,
+     %LexerState{file_path: file_path, context: context, current_token: nil}}
   end
 
   @impl true
   def handle_call({:shift_token, amount}, _from, %LexerState{} = lexer_state)
       when is_integer(amount) do
-    {:ok, %Context{} = context, %Elil.Lexer{} = lexer} = do_lex(lexer_state.context)
-    {:reply, lexer, struct!(lexer_state, context: context, current_token: lexer)}
+    {:ok, %Context{} = context, %Elil.Lexer{} = lexer} =
+      do_lex(lexer_state.context)
+
+    {:reply, lexer,
+     struct!(lexer_state, context: context, current_token: lexer)}
   end
 
   @impl true
@@ -173,7 +185,8 @@ defmodule Elil.Lexer do
     return_lex({Token.eof(), value}, context, context_updates)
   end
 
-  defp do_lex(%Context{src_rest: <<char, rest::binary>>} = context) when char in [?\s, ?\t] do
+  defp do_lex(%Context{src_rest: <<char, rest::binary>>} = context)
+       when char in [?\s, ?\t] do
     context_updates = [
       src_rest: rest,
       chars_since_last_newline: context.chars_since_last_newline + 1
@@ -208,7 +221,8 @@ defmodule Elil.Lexer do
 
     context_updates = [
       src_rest: rest,
-      chars_since_last_newline: context.chars_since_last_newline + String.length(value)
+      chars_since_last_newline:
+        context.chars_since_last_newline + String.length(value)
     ]
 
     return_lex({Token.oparen(), value}, context, context_updates)
@@ -220,19 +234,22 @@ defmodule Elil.Lexer do
 
     context_updates = [
       src_rest: rest,
-      chars_since_last_newline: context.chars_since_last_newline + String.length(value)
+      chars_since_last_newline:
+        context.chars_since_last_newline + String.length(value)
     ]
 
     return_lex({Token.cparen(), value}, context, context_updates)
   end
 
   # int
-  defp do_lex(%Context{src_rest: <<char, _rest::binary>>} = context) when is_numeric(char) do
+  defp do_lex(%Context{src_rest: <<char, _rest::binary>>} = context)
+       when is_numeric(char) do
     {value, rest} = parse_integer(context)
 
     context_updates = [
       src_rest: rest,
-      chars_since_last_newline: context.chars_since_last_newline + String.length(value)
+      chars_since_last_newline:
+        context.chars_since_last_newline + String.length(value)
     ]
 
     return_lex({Token.int(), value}, context, context_updates)
@@ -245,7 +262,8 @@ defmodule Elil.Lexer do
     context_updates = [
       src_rest: rest,
       # one more for the semi-colon
-      chars_since_last_newline: context.chars_since_last_newline + String.length(value) + 1
+      chars_since_last_newline:
+        context.chars_since_last_newline + String.length(value) + 1
     ]
 
     if context.skip_comments do
@@ -289,18 +307,22 @@ defmodule Elil.Lexer do
 
     context_updates = [
       src_rest: rest,
-      chars_since_last_newline: context.chars_since_last_newline + String.length(value)
+      chars_since_last_newline:
+        context.chars_since_last_newline + String.length(value)
     ]
 
     return_lex({Token.bool_true(), value}, context, context_updates)
   end
 
-  defp do_lex(%Context{src_rest: <<?f, ?a, ?l, ?s, ?e, rest::binary>>} = context) do
+  defp do_lex(
+         %Context{src_rest: <<?f, ?a, ?l, ?s, ?e, rest::binary>>} = context
+       ) do
     value = "false"
 
     context_updates = [
       src_rest: rest,
-      chars_since_last_newline: context.chars_since_last_newline + String.length(value)
+      chars_since_last_newline:
+        context.chars_since_last_newline + String.length(value)
     ]
 
     return_lex({Token.bool_false(), value}, context, context_updates)
@@ -319,7 +341,8 @@ defmodule Elil.Lexer do
 
     context_updates = [
       src_rest: rest,
-      chars_since_last_newline: context.chars_since_last_newline + String.length(value)
+      chars_since_last_newline:
+        context.chars_since_last_newline + String.length(value)
     ]
 
     return_lex({type, value}, context, context_updates)
@@ -327,7 +350,8 @@ defmodule Elil.Lexer do
 
   # Used in the whitespace and comment cases, where we still want to update
   # the context with row and col, but not return an actual token.
-  defp continue_lex(%Context{} = context, context_updates) when is_list(context_updates) do
+  defp continue_lex(%Context{} = context, context_updates)
+       when is_list(context_updates) do
     do_lex(struct!(context, context_updates))
   end
 
@@ -356,7 +380,8 @@ defmodule Elil.Lexer do
     {:error, "unknown identifier char: \"#{to_string([char])}\""}
   end
 
-  defp do_parse_identifier(<<char, rest::binary>>, result) when valid_identifier_char(char) do
+  defp do_parse_identifier(<<char, rest::binary>>, result)
+       when valid_identifier_char(char) do
     do_parse_identifier(rest, [char | result])
   end
 
@@ -378,7 +403,8 @@ defmodule Elil.Lexer do
 
   defp parse_integer(context, result \\ [])
 
-  defp parse_integer(%Context{src_rest: rest}, result), do: parse_integer(rest, result)
+  defp parse_integer(%Context{src_rest: rest}, result),
+    do: parse_integer(rest, result)
 
   defp parse_integer(<<char, rest::binary>>, result) when char in ?0..?9 do
     parse_integer(rest, [char | result])
