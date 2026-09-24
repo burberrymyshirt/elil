@@ -33,11 +33,11 @@ defmodule Elil.Logger do
   def error_log(msg) when is_binary(msg), do: IO.puts(msg)
 
   def error_log(file_path, msg) when is_binary(file_path) and is_binary(msg) do
-    error_log("#{file_path} #{msg}")
+    error_log("#{file_path}: #{msg}")
   end
 
   def error_log(file_path, {row, col}, msg)
       when is_binary(file_path) and is_integer(row) and is_integer(col) and is_binary(msg) do
-    error_log("#{file_path}:#{row}:#{col} #{msg}")
+    error_log("#{file_path}:#{row}:#{col}: #{msg}")
   end
 end

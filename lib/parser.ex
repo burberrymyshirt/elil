@@ -17,6 +17,7 @@ defmodule Elil.Parser do
       @compile {:inline,
                 root: 0,
                 scope: 0,
+                fn_body: 0,
                 dqstr: 0,
                 int: 0,
                 let: 0,
@@ -29,6 +30,7 @@ defmodule Elil.Parser do
                 bool_false: 0}
       def root(), do: :root
       def scope(), do: :scope
+      def fn_body(), do: :fn_body
       def dqstr(), do: :dqstr
       def int(), do: :int
       def let(), do: :let
@@ -432,7 +434,7 @@ defmodule Elil.Parser do
           |> then(
             &{elem(&1, 0),
              struct!(Node,
-               type: Node.Type.scope(),
+               type: Node.Type.fn_body(),
                params: elem(&1, 1),
                source_location: lexer.source_location
              )}

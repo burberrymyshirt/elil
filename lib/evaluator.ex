@@ -1,6 +1,7 @@
 defmodule Elil.Evaluator do
   require Elil.Utils
   import Elil.Utils
+  alias Elil.Utils.SourceLocation
   alias Elil.Lexer
   alias Elil.Parser.Node
   alias Elil.Context
@@ -90,7 +91,7 @@ defmodule Elil.Evaluator do
     end
   end
 
-  defguard is_scope_type(type) when type in [:root, :scope]
+  defguard is_scope_type(type) when type in [:root, :scope, :fn_body]
   defguard is_lit(type) when type in [:dqstr, :int, :bool_true, :bool_false]
 
   @elil_types [:string, :int, :func, :mixed]
@@ -156,15 +157,18 @@ defmodule Elil.Evaluator do
     eval_node(pid, node)
   end
 
-  defp eval_node(pid, %Node{type: :root, body: nil} = node) when is_pid(pid) do
-    {:ok} = Context.push_scope(pid)
+  defp eval_node(pid, %Node{type: :fn_body} = node) when is_pid(pid) do
     eval_params(pid, node)
-    {:ok} = Context.pop_scope(pid)
   end
 
-  defp eval_node(pid, %Node{type: :scope, body: nil} = node) when is_pid(pid) do
-    # TODO: when calling from a function, this should behave a bit differently,
-    # as we need to push the functions arguments into the new scope as well.
+  defp eval_node(pid, %Node{type: :root} = node) when is_pid(pid) do
+    Context.push_frame(pid)
+    eval_params(pid, node)
+    Context.pop_frame(pid)
+  end
+
+  defp eval_node(pid, %Node{type: :scope, body: nil} = node)
+       when is_pid(pid) do
     {:ok} = Context.push_scope(pid)
     eval_params(pid, node)
     {:ok} = Context.pop_scope(pid)
@@ -175,15 +179,19 @@ defmodule Elil.Evaluator do
   end
 
   defp eval_node(pid, %Node{type: :let} = node) when is_pid(pid) do
-    eval_let(pid, node)
+    define_symbol(pid, node, :local)
+  end
+
+  defp eval_node(pid, %Node{type: :glet} = node) when is_pid(pid) do
+    define_symbol(pid, node, :global)
+  end
+
+  defp eval_node(pid, %Node{type: :deffn} = node) when is_pid(pid) do
+    define_symbol(pid, node, :global)
   end
 
   defp eval_node(pid, %Node{type: :ass} = node) when is_pid(pid) do
     eval_ass(pid, node)
-  end
-
-  defp eval_node(pid, %Node{type: :deffn} = node) when is_pid(pid) do
-    eval_deffn(pid, node)
   end
 
   defp eval_node(pid, %Node{type: :lt} = node) when is_pid(pid) do
@@ -323,35 +331,28 @@ defmodule Elil.Evaluator do
     Value.new(node.body, Value.Type.string())
   end
 
-  defp eval_deffn(pid, %Node{type: :deffn} = node) when is_pid(pid) do
-    # NOTE: this code looks a lot like eval_let. Especially since we use the same namespace for deffn and let
-    # TODO: since we use func type for deffn, we probably need some sort of quoted thing, for when functions as first class citizens are eventually introduced
-
+  defp define_symbol(pid, %Node{type: :deffn} = node, into) when is_atom(into) do
     value = Value.new(node.params, Value.Type.func())
-
-    case Context.put_symbol(pid, node.body, value) do
-      :already_exists ->
-        Elil.Logger.error_log_and_die(
-          node,
-          "symbol \"#{to_string(node.body)}\" has already been previously defined"
-        )
-
-      _ ->
-        {:ok}
-    end
+    do_define_symbol(pid, node.body, value, into, node.source_location)
   end
 
-  defp eval_let(pid, %Node{type: :let} = node) when is_pid(pid) do
+  defp define_symbol(pid, %Node{type: type} = node, into)
+       when is_atom(into) and type in [:let, :glet] do
     # Hard assert for now. Only one value can be assigned to a variable.
     1 = length(node.params)
     [head | _] = node.params
     %Value{} = value = eval_node(pid, head)
 
-    case Context.put_symbol(pid, node.body, value) do
+    do_define_symbol(pid, node.body, value, into, node.source_location)
+  end
+
+  defp do_define_symbol(pid, name, %Value{} = value, into, %SourceLocation{} = source_location)
+       when is_pid(pid) and is_binary(name) and is_atom(into) do
+    case Context.define_symbol(pid, name, value, into) do
       :already_exists ->
         Elil.Logger.error_log_and_die(
-          node,
-          "symbol \"#{to_string(node.body)}\" has already been previously defined"
+          source_location,
+          "symbol \"#{to_string(name)}\" has already been previously defined"
         )
 
       _ ->
@@ -365,7 +366,7 @@ defmodule Elil.Evaluator do
     [head | _] = node.params
     %Value{} = value = eval_node(pid, head)
 
-    case Context.reassign_let(pid, node.body, value) do
+    case Context.reassign(pid, node.body, value) do
       {:undefined} ->
         Elil.Logger.error_log_and_die(
           node,
@@ -380,7 +381,7 @@ defmodule Elil.Evaluator do
   defp eval_ident(pid, %Node{type: :ident} = node) when is_pid(pid) do
     # TODO: figure out when we need to do a function lookup vs a variable lookup
     case Context.get_symbol(pid, node) do
-      {:undefined} ->
+      :undefined ->
         # fallback to builtin functions for now.
         # @see logging errors Maybe this should all just be put inside the scope
         # at the beginning at some point, so we can report errors properly here
@@ -405,23 +406,28 @@ defmodule Elil.Evaluator do
               Elil.Logger.error_log_and_die(node, msg)
           end
 
-        Context.push_scope(pid)
+        Context.push_frame(pid)
+
+        Context.define_symbol(pid, node.body, value, :local)
 
         # TODO: This is a bit scuffed. Maybe the Value should know its own name,
         # instead of just being the symbol key in the scope.
-        arguments |> Enum.each(&Context.put_symbol(pid, elem(&1, 0), elem(&1, 1)))
+        arguments
+        |> Enum.each(fn
+          {name, value} -> Context.define_symbol(pid, name, value, :local)
+        end)
 
         fn_body = Keyword.get(value.value, :fn_body)
-        {:ok} = r = eval_node(pid, fn_body)
+        r = eval_node(pid, fn_body)
 
         return =
           if r !== {:ok} do
-            todo("handle function returning value")
+            todo("handle function returning value. Even if it's void")
           else
             struct!(Value, type: Value.Type.void())
           end
 
-        Context.pop_scope(pid)
+        Context.pop_frame(pid)
 
         # TODO: This return might have to be assigned to something
         {:ok, return}

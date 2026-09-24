@@ -1,3 +1,11 @@
+PRESSING:
+Need to define call frames or something for functions, as we cannot manage
+scopes properly, without some sort of thing that scopes the current executing
+function, rather than just "local_symbols". That construct is way too prone to
+shadowing of values and such. Idk what really to do, this is just my only real
+idea for this.
+
+
 Current and pressing bugs:
 
 [] lexical scopes should be better defined. @see examples/break-shit.elil
