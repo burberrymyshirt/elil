@@ -5,6 +5,19 @@ defmodule Elil.Lexer do
   import Elil.Logger
   use GenServer
 
+  # Want better naming from this. The Lexer should be the state for the
+  # genserver, instead of "LexerState". That struct should be discarded
+  # completely. Then the Lexer.Token should be the thing that is returned to the
+  # parser, and the Token should be a struct with all the necessary fields to
+  # enrich the parser. I don't really like the very loosely defined ":params"
+  # field in the current struct, but I don't really currently have a better
+  # idea. Then the keyword token types should be individual tokens, rather than
+  # a ":kwd" type and then later on distinguished between using the ":body"
+  # field. That is very messy, when we could just leave that blank and then pass
+  # the token and get the same effect. It leaves more data than we need, leading
+  # it to a generally more messy implementation.
+  todo("see comment in code.")
+
   @enforce_keys [:token, :value, :source_location]
   defstruct [
     :token,
