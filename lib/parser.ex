@@ -1,8 +1,9 @@
 defmodule Elil.Parser do
-  alias Elil.Utils.SourceLocation
   alias Elil.Lexer
-  require Elil.Utils
+  alias Elil.Lexer.Token
+  alias Elil.Utils.SourceLocation
   import Elil.Utils
+  require Elil.Utils
 
   defmodule Node do
     @enforce_keys :source_location
@@ -73,26 +74,26 @@ defmodule Elil.Parser do
       # bootstrap the lexer
       nil ->
         case Lexer.shift(pid) do
-          %Lexer{token: :oparen} ->
+          %Token{token: :oparen} ->
             parse_root_term_list(pid, acc)
 
-          %Lexer{} = lexer ->
+          %Token{} = lexer ->
             Elil.Logger.error_log_and_die(
               lexer,
               "expected \":oparen\", but got: :#{Atom.to_string(lexer.token)}"
             )
         end
 
-      %Lexer{token: :eof} ->
+      %Token{token: :eof} ->
         {:ok, Enum.reverse(acc)}
 
-      # %Lexer{token: :cparen} = lexer ->
+      # %Token{token: :cparen} = lexer ->
       #   Elil.Logger.error_log_and_die("@see logging errors", lexer, "unexpected closing parenthesis encountered")
 
-      %Lexer{token: :oparen} ->
+      %Token{token: :oparen} ->
         case Lexer.shift(pid) do
           # handle nested scopes
-          %Lexer{token: :oparen} = lexer ->
+          %Token{token: :oparen} = lexer ->
             {:ok, list} = parse_scope_term_list(pid)
 
             node =
@@ -105,7 +106,7 @@ defmodule Elil.Parser do
             parse_root_term_list(pid, [node | acc])
 
           # handle standalone terms
-          %Lexer{} ->
+          %Token{} ->
             {:ok, term} = parse_term(pid)
             parse_root_term_list(pid, [term | acc])
         end
@@ -115,30 +116,30 @@ defmodule Elil.Parser do
   defp parse_scope_term_list(pid, acc \\ [])
        when is_pid(pid) and is_list(acc) do
     case Lexer.current(pid) do
-      %Lexer{token: :cparen} ->
+      %Token{token: :cparen} ->
         Lexer.shift(pid)
         {:ok, Enum.reverse(acc)}
 
-      %Lexer{token: :oparen} ->
+      %Token{token: :oparen} ->
         case Lexer.shift(pid) do
           # handle standalone terms
-          %Lexer{token: token} when token in [:ident, :kwd] ->
+          %Token{token: token} when token in [:ident, :kwd] ->
             {:ok, term} = parse_term(pid)
             parse_scope_term_list(pid, [term | acc])
 
-          %Lexer{token: :oparen} ->
+          %Token{token: :oparen} ->
             {:ok, list} = parse_scope_term_list(pid)
             parse_scope_term_list(pid, [list | acc])
         end
 
-      %Lexer{} ->
+      %Token{} ->
         {:err, "A scope is expected to start with an opening parenthesis"}
     end
   end
 
   defp parse_term(pid) do
     case Lexer.current(pid) do
-      %Lexer{token: :ident} = lexer ->
+      %Token{token: :ident} = lexer ->
         ident = parse_ident(pid)
         {:ok, params} = parse_params(pid)
 
@@ -152,11 +153,11 @@ defmodule Elil.Parser do
 
         {:ok, node}
 
-      %Lexer{token: :kwd} ->
+      %Token{token: :kwd} ->
         node = parse_kwd(pid)
         {:ok, node}
 
-      %Lexer{token: :bool_true} = lexer ->
+      %Token{token: :bool_true} = lexer ->
         lit = parse_lit(pid)
 
         # parse_lit can't shift more than it already is, cause then we will end up skipping tokens.
@@ -171,7 +172,7 @@ defmodule Elil.Parser do
 
         {:ok, node}
 
-      %Lexer{token: :bool_false} = lexer ->
+      %Token{token: :bool_false} = lexer ->
         lit = parse_lit(pid)
 
         # parse_lit can't shift more than it already is, cause then we will end up skipping tokens.
@@ -186,7 +187,7 @@ defmodule Elil.Parser do
 
         {:ok, node}
 
-      %Lexer{token: :dqstr} = lexer ->
+      %Token{token: :dqstr} = lexer ->
         lit = parse_lit(pid)
 
         # parse_lit can't shift more than it already is, cause then we will end up skipping tokens.
@@ -201,7 +202,7 @@ defmodule Elil.Parser do
 
         {:ok, node}
 
-      %Lexer{token: :int} = lexer ->
+      %Token{token: :int} = lexer ->
         lit = parse_lit(pid)
 
         # parse_lit can't shift more than it already is, cause then we will end up skipping tokens.
@@ -216,7 +217,7 @@ defmodule Elil.Parser do
 
         {:ok, node}
 
-      %Lexer{} = lexer ->
+      %Token{} = lexer ->
         Elil.Logger.error_log_and_die(
           lexer,
           "a term has to begin with an identifier or a keyword, got #{Atom.to_string(lexer.token)}"
@@ -226,7 +227,7 @@ defmodule Elil.Parser do
 
   defp parse_ident(pid) when is_pid(pid) do
     case Lexer.current(pid) do
-      %Lexer{token: :ident} = lexer ->
+      %Token{token: :ident} = lexer ->
         Lexer.shift(pid)
         lexer.value
     end
@@ -234,12 +235,12 @@ defmodule Elil.Parser do
 
   defp parse_params(pid, acc \\ []) when is_pid(pid) do
     case Lexer.current(pid) do
-      %Lexer{token: :oparen} ->
+      %Token{token: :oparen} ->
         Lexer.shift(pid)
         {:ok, term} = parse_term(pid)
         parse_params(pid, [term | acc])
 
-      %Lexer{token: :dqstr} = lexer ->
+      %Token{token: :dqstr} = lexer ->
         body = parse_lit(pid)
 
         parse_params(pid, [
@@ -251,7 +252,7 @@ defmodule Elil.Parser do
           | acc
         ])
 
-      %Lexer{token: :int} = lexer ->
+      %Token{token: :int} = lexer ->
         body = parse_lit(pid)
 
         parse_params(pid, [
@@ -263,7 +264,7 @@ defmodule Elil.Parser do
           | acc
         ])
 
-      %Lexer{token: :bool_true} = lexer ->
+      %Token{token: :bool_true} = lexer ->
         body = parse_lit(pid)
 
         parse_params(pid, [
@@ -275,7 +276,7 @@ defmodule Elil.Parser do
           | acc
         ])
 
-      %Lexer{token: :bool_false} = lexer ->
+      %Token{token: :bool_false} = lexer ->
         body = parse_lit(pid)
 
         parse_params(pid, [
@@ -288,7 +289,7 @@ defmodule Elil.Parser do
         ])
 
       # Identifier is used as an argument to e.g. a function.
-      %Lexer{token: :ident} = lexer ->
+      %Token{token: :ident} = lexer ->
         node =
           struct!(Node,
             type: Node.Type.ident(),
@@ -298,7 +299,7 @@ defmodule Elil.Parser do
 
         parse_params(pid, [node | acc])
 
-      %Lexer{token: :cparen} ->
+      %Token{token: :cparen} ->
         Lexer.shift(pid)
         {:ok, Enum.reverse(acc)}
     end
@@ -306,23 +307,23 @@ defmodule Elil.Parser do
 
   defp parse_lit(pid) when is_pid(pid) do
     case Lexer.current(pid) do
-      %Lexer{token: :bool_true} = lexer ->
+      %Token{token: :bool_true} = lexer ->
         Lexer.shift(pid)
         lexer.value
 
-      %Lexer{token: :bool_false} = lexer ->
+      %Token{token: :bool_false} = lexer ->
         Lexer.shift(pid)
         lexer.value
 
-      %Lexer{token: :dqstr} = lexer ->
+      %Token{token: :dqstr} = lexer ->
         Lexer.shift(pid)
         lexer.value
 
-      %Lexer{token: :int} = lexer ->
+      %Token{token: :int} = lexer ->
         Lexer.shift(pid)
         lexer.value
 
-      %Lexer{} = lexer ->
+      %Token{} = lexer ->
         Elil.Logger.error_log_and_die(
           lexer,
           "a valid literal is expected when calling parse_lit binding, got: :#{Atom.to_string(lexer.token)}"
@@ -339,20 +340,20 @@ defmodule Elil.Parser do
 
   defp do_parse_func_params(pid, acc \\ []) do
     case Lexer.current(pid) do
-      %Lexer{token: :cparen} ->
+      %Token{token: :cparen} ->
         Lexer.shift(pid)
         {:ok, Enum.reverse(acc)}
 
       lexer ->
         :ok = expect_token(lexer, :ident)
         ident = parse_ident(pid)
-        %Lexer{} = current = Lexer.current(pid)
+        %Token{} = current = Lexer.current(pid)
         :ok = expect_token(current, [:colon, :ident, :cparen])
 
         node =
           case current do
-            %Lexer{token: :colon} ->
-              %Lexer{} = type = Lexer.shift(pid)
+            %Token{token: :colon} ->
+              %Token{} = type = Lexer.shift(pid)
               :ok = expect_token(type, :ident)
               type_ident = parse_ident(pid)
 
@@ -389,9 +390,9 @@ defmodule Elil.Parser do
     # TODO: much of this code looks similar. I feel like we could do it in a much simpler manner.
     #  Especially since much of it looks like something out of parse_term() when hitting an ident.
     case Lexer.current(pid) do
-      %Lexer{value: "let"} ->
+      %Token{value: "let"} ->
         case Lexer.shift(pid) do
-          %Lexer{token: :ident} = lexer ->
+          %Token{token: :ident} = lexer ->
             ident = parse_ident(pid)
             {:ok, term} = parse_params(pid)
             # hard assert for now.
@@ -404,16 +405,16 @@ defmodule Elil.Parser do
               source_location: lexer.source_location
             )
 
-          %Lexer{} = lexer ->
+          %Token{} = lexer ->
             Elil.Logger.error_log_and_die(
               lexer,
               "a valid identifier is expected when doing a \"let\" binding, got: :#{Atom.to_string(lexer.token)}"
             )
         end
 
-      %Lexer{value: "ass"} ->
+      %Token{value: "ass"} ->
         case Lexer.shift(pid) do
-          %Lexer{token: :ident} = lexer ->
+          %Token{token: :ident} = lexer ->
             ident = parse_ident(pid)
             {:ok, term} = parse_params(pid)
             # hard assert for now.
@@ -426,20 +427,20 @@ defmodule Elil.Parser do
               source_location: lexer.source_location
             )
 
-          %Lexer{} = lexer ->
+          %Token{} = lexer ->
             Elil.Logger.error_log_and_die(
               lexer,
               "a valid identifier is expected when doing a \"let\" binding, got: :#{Atom.to_string(lexer.token)}"
             )
         end
 
-      %Lexer{value: "deffn"} = lexer ->
+      %Token{value: "deffn"} = lexer ->
         Lexer.shift(pid)
         fn_name = parse_ident(pid)
 
         {:ok, fn_params} = parse_func_params(pid)
 
-        %Lexer{token: :oparen} = Lexer.current(pid)
+        %Token{token: :oparen} = Lexer.current(pid)
         Lexer.shift(pid)
 
         {:ok, body} =
@@ -464,7 +465,7 @@ defmodule Elil.Parser do
           source_location: lexer.source_location
         )
 
-      %Lexer{value: "lt"} = lexer ->
+      %Token{value: "lt"} = lexer ->
         Lexer.shift(pid)
         {:ok, params} = parse_params(pid)
 
@@ -475,8 +476,8 @@ defmodule Elil.Parser do
           source_location: lexer.source_location
         )
 
-      %Lexer{value: "if"} = lexer ->
-        %Lexer{token: :oparen} = Lexer.shift(pid)
+      %Token{value: "if"} = lexer ->
+        %Token{token: :oparen} = Lexer.shift(pid)
         Lexer.shift(pid)
         {:ok, c} = parse_term(pid)
         Lexer.shift(pid)
@@ -485,7 +486,7 @@ defmodule Elil.Parser do
 
         e =
           case Lexer.current(pid) do
-            %Lexer{token: :oparen} ->
+            %Token{token: :oparen} ->
               Lexer.shift(pid)
 
               parse_if_branch(pid)
@@ -496,7 +497,7 @@ defmodule Elil.Parser do
           end
 
         # @see logging erros this just hard fails, it should probably have a nice message :)
-        %Lexer{token: :cparen} = Lexer.current(pid)
+        %Token{token: :cparen} = Lexer.current(pid)
         Lexer.shift(pid)
 
         struct!(Node,
@@ -506,12 +507,12 @@ defmodule Elil.Parser do
           source_location: lexer.source_location
         )
 
-      %Lexer{} = lexer ->
+      %Token{} = lexer ->
         todo("unhandled keyword: \"#{lexer.value}\"")
     end
   end
 
-  defp expect_token(%Lexer{} = lexer, expected_tokens)
+  defp expect_token(%Token{} = lexer, expected_tokens)
        when is_list(expected_tokens) and length(expected_tokens) > 1 do
     case Enum.member?(expected_tokens, lexer.token) do
       true ->
@@ -532,12 +533,12 @@ defmodule Elil.Parser do
     end
   end
 
-  defp expect_token(%Lexer{} = lexer, expected_token)
+  defp expect_token(%Token{} = lexer, expected_token)
        when is_list(expected_token) and length(expected_token) <= 1 do
     expect_token(lexer, List.first!(expected_token))
   end
 
-  defp expect_token(%Lexer{} = lexer, expected_token)
+  defp expect_token(%Token{} = lexer, expected_token)
        when is_atom(expected_token) do
     case lexer.token do
       ^expected_token ->

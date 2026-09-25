@@ -5,25 +5,7 @@ defmodule Elil.Lexer do
   import Elil.Logger
   use GenServer
 
-  # Want better naming from this. The Lexer should be the state for the
-  # genserver, instead of "LexerState". That struct should be discarded
-  # completely. Then the Lexer.Token should be the thing that is returned to the
-  # parser, and the Token should be a struct with all the necessary fields to
-  # enrich the parser. I don't really like the very loosely defined ":params"
-  # field in the current struct, but I don't really currently have a better
-  # idea. Then the keyword token types should be individual tokens, rather than
-  # a ":kwd" type and then later on distinguished between using the ":body"
-  # field. That is very messy, when we could just leave that blank and then pass
-  # the token and get the same effect. It leaves more data than we need, leading
-  # it to a generally more messy implementation.
-  todo("see comment in code.")
-
-  @enforce_keys [:token, :value, :source_location]
-  defstruct [
-    :token,
-    :value,
-    :source_location
-  ]
+  defstruct [:file_path, :context, :current_token]
 
   defmodule Context do
     @enforce_keys [
@@ -59,6 +41,13 @@ defmodule Elil.Lexer do
   @keywords ["let", "ass", "deffn", "if", "lt", "lte", "gt", "gte", "eq", "not"]
 
   defmodule Token do
+    @enforce_keys [:token, :value, :source_location]
+    defstruct [
+      :token,
+      :value,
+      :source_location
+    ]
+
     @compile {:inline,
               eof: 0,
               oparen: 0,
@@ -82,10 +71,6 @@ defmodule Elil.Lexer do
     def colon(), do: :colon
     def bool_true(), do: :bool_true
     def bool_false(), do: :bool_false
-  end
-
-  defmodule LexerState do
-    defstruct [:file_path, :context, :current_token]
   end
 
   def lex_entire_file(file) do
@@ -117,8 +102,8 @@ defmodule Elil.Lexer do
     end
 
     case s do
-      %__MODULE__{token: :eof} -> Enum.reverse(result)
-      %__MODULE__{} = l -> do_lex_entire_file(pid, cb, [l | result])
+      %Token{token: :eof} -> Enum.reverse(result)
+      %Token{} = l -> do_lex_entire_file(pid, cb, [l | result])
     end
   end
 
@@ -156,26 +141,26 @@ defmodule Elil.Lexer do
     }
 
     {:ok,
-     %LexerState{file_path: file_path, context: context, current_token: nil}}
+     %__MODULE__{file_path: file_path, context: context, current_token: nil}}
   end
 
   @impl true
-  def handle_call({:shift_token, amount}, _from, %LexerState{} = lexer_state)
+  def handle_call({:shift_token, amount}, _from, %__MODULE__{} = lexer_state)
       when is_integer(amount) do
-    {:ok, %Context{} = context, %Elil.Lexer{} = lexer} =
+    {:ok, %Context{} = context, %Elil.Lexer.Token{} = lexer} =
       do_lex(lexer_state.context)
 
     {:reply, lexer,
-     %LexerState{lexer_state | context: context, current_token: lexer}}
+     %__MODULE__{lexer_state | context: context, current_token: lexer}}
   end
 
   @impl true
-  def handle_call({:get_current_token}, _from, %LexerState{} = lexer_state) do
+  def handle_call({:get_current_token}, _from, %__MODULE__{} = lexer_state) do
     {:reply, lexer_state.current_token, lexer_state}
   end
 
   @impl true
-  def handle_call({:file_path}, _from, %LexerState{} = lexer_state) do
+  def handle_call({:file_path}, _from, %__MODULE__{} = lexer_state) do
     {:reply, lexer_state.file_path, lexer_state}
   end
 
@@ -365,12 +350,12 @@ defmodule Elil.Lexer do
   # the context with row and col, but not return an actual token.
   defp continue_lex(%Context{} = context, context_updates)
        when is_list(context_updates) do
-    do_lex(%Context{context | context_updates})
+    do_lex(struct!(context, context_updates))
   end
 
   defp return_lex({token, value}, %Context{} = context, context_updates)
        when is_list(context_updates) and is_atom(token) do
-    lexer = %__MODULE__{
+    lexer = %Token{
       token: token,
       value: value,
       source_location: %SourceLocation{
@@ -380,7 +365,7 @@ defmodule Elil.Lexer do
       }
     }
 
-    {:ok, %Context{context | context_updates}, lexer}
+    {:ok, struct!(context, context_updates), lexer}
   end
 
   defp parse_identifier(%Context{src_rest: rest}), do: do_parse_identifier(rest)

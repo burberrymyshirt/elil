@@ -142,6 +142,8 @@ defmodule Elil.Evaluator do
     end
 
     if Elil.Cmd.get_option_bool("print_lexer") do
+      # TODO: knowledge of the lexer module should probably be abstracted to
+      # lib/cmd.ex instead of being inside the evaluator. Idk, maybe.
       Lexer.lex_entire_file(file, file_path, &IO.inspect(&1))
       :ok
     else
