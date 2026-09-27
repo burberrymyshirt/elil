@@ -28,17 +28,11 @@ defmodule Elil.Lexer do
     def location(%Context{} = context) do
       %SourceLocation{
         row: current_row(context),
-        column: current_column(context),
+        col: current_column(context),
         file_path: context.file_path
       }
     end
   end
-
-  # TODO: I kind of want keywords to be defined tokens rather than handling it like this.
-  #  Doing that makes the parser interface way cleaner by enabling parsing with the same
-  #  API all the way through, rather than switching between matching on the function vs
-  #  matching my using case statements.
-  @keywords ["let", "ass", "deffn", "if", "lt", "lte", "gt", "gte", "eq", "not"]
 
   defmodule Token do
     @enforce_keys [:token, :value, :source_location]
@@ -50,24 +44,42 @@ defmodule Elil.Lexer do
 
     @compile {:inline,
               eof: 0,
+              let: 0,
+              ass: 0,
+              deffn: 0,
+              cond_if: 0,
+              lt: 0,
+              lte: 0,
+              gt: 0,
+              gte: 0,
+              eq: 0,
+              negate: 0,
               oparen: 0,
               cparen: 0,
               ident: 0,
               dqstr: 0,
               int: 0,
               cmt: 0,
-              kwd: 0,
               colon: 0,
               bool_true: 0,
               bool_false: 0}
     def eof(), do: :eof
+    def let(), do: :let
+    def ass(), do: :ass
+    def deffn(), do: :deffn
+    def cond_if(), do: :cond_if
+    def lt(), do: :lt
+    def lte(), do: :lte
+    def gt(), do: :gt
+    def gte(), do: :gte
+    def eq(), do: :eq
+    def negate(), do: :negate
     def oparen(), do: :oparen
     def cparen(), do: :cparen
     def ident(), do: :ident
     def dqstr(), do: :dqstr
     def int(), do: :int
     def cmt(), do: :cmt
-    def kwd(), do: :kwd
     def colon(), do: :colon
     def bool_true(), do: :bool_true
     def bool_false(), do: :bool_false
@@ -178,9 +190,7 @@ defmodule Elil.Lexer do
                    char in [?(, ?), ?", ?:]
 
   defp do_lex(%Context{src_rest: rest} = context) when rest === "" do
-    value = ""
-    context_updates = []
-    return_lex({Token.eof(), value}, context, context_updates)
+    return_lex({Token.eof(), nil}, context, [])
   end
 
   defp do_lex(%Context{src_rest: <<char, rest::binary>>} = context)
@@ -193,7 +203,7 @@ defmodule Elil.Lexer do
     continue_lex(context, context_updates)
   end
 
-  defp do_lex(%Context{src_rest: <<?\r, ?\n, rest::binary>>} = context) do
+  defp do_lex(%Context{src_rest: <<"\r\n", rest::binary>>} = context) do
     context_updates = [
       src_rest: rest,
       chars_since_last_newline: 0,
@@ -203,7 +213,7 @@ defmodule Elil.Lexer do
     continue_lex(context, context_updates)
   end
 
-  defp do_lex(%Context{src_rest: <<?\n, rest::binary>>} = context) do
+  defp do_lex(%Context{src_rest: <<"\n", rest::binary>>} = context) do
     context_updates = [
       src_rest: rest,
       chars_since_last_newline: 0,
@@ -214,29 +224,25 @@ defmodule Elil.Lexer do
   end
 
   # oparen
-  defp do_lex(%Context{src_rest: <<?(, rest::binary>>} = context) do
-    value = "("
-
+  defp do_lex(%Context{src_rest: <<"(", rest::binary>>} = context) do
     context_updates = [
       src_rest: rest,
       chars_since_last_newline:
-        context.chars_since_last_newline + String.length(value)
+        context.chars_since_last_newline + 1
     ]
 
-    return_lex({Token.oparen(), value}, context, context_updates)
+    return_lex({Token.oparen(), nil}, context, context_updates)
   end
 
   # cparen
-  defp do_lex(%Context{src_rest: <<?), rest::binary>>} = context) do
-    value = ")"
-
+  defp do_lex(%Context{src_rest: <<")", rest::binary>>} = context) do
     context_updates = [
       src_rest: rest,
       chars_since_last_newline:
-        context.chars_since_last_newline + String.length(value)
+        context.chars_since_last_newline + 1
     ]
 
-    return_lex({Token.cparen(), value}, context, context_updates)
+    return_lex({Token.cparen(), nil}, context, context_updates)
   end
 
   # int
@@ -250,17 +256,18 @@ defmodule Elil.Lexer do
         context.chars_since_last_newline + String.length(value)
     ]
 
+    # TODO: store the value as an actual integer, instead of string?
     return_lex({Token.int(), value}, context, context_updates)
   end
 
   # cmt
-  defp do_lex(%Context{src_rest: <<?;, rest::binary>>} = context) do
+  defp do_lex(%Context{src_rest: <<";", rest::binary>>} = context) do
     {value, rest} = parse_comment(rest)
 
     context_updates = [
       src_rest: rest,
-      # one more for the semi-colon
       chars_since_last_newline:
+        # one more for the semi-colon
         context.chars_since_last_newline + String.length(value) + 1
     ]
 
@@ -272,7 +279,7 @@ defmodule Elil.Lexer do
   end
 
   # dqstr
-  defp do_lex(%Context{src_rest: <<?", rest::binary>>} = context) do
+  defp do_lex(%Context{src_rest: <<"\"", rest::binary>>} = context) do
     case parse_dqstr(rest) do
       # TODO: @see error logging paragraph in todo.txt. We are not able to provide location in file for these errors as of now
       {:error, msg} ->
@@ -289,49 +296,135 @@ defmodule Elil.Lexer do
     end
   end
 
-  defp do_lex(%Context{src_rest: <<?:, rest::binary>>} = context) do
-    value = ":"
-
+  defp do_lex(%Context{src_rest: <<":", rest::binary>>} = context) do
     context_updates = [
       src_rest: rest,
       chars_since_last_newline: context.chars_since_last_newline + 1
     ]
 
-    return_lex({Token.colon(), value}, context, context_updates)
+    return_lex({Token.colon(), nil}, context, context_updates)
   end
 
-  defp do_lex(%Context{src_rest: <<?t, ?r, ?u, ?e, rest::binary>>} = context) do
-    value = "true"
-
+  defp do_lex(%Context{src_rest: <<"true", rest::binary>>} = context) do
     context_updates = [
       src_rest: rest,
       chars_since_last_newline:
-        context.chars_since_last_newline + String.length(value)
+        context.chars_since_last_newline + 4
     ]
 
-    return_lex({Token.bool_true(), value}, context, context_updates)
+    return_lex({Token.bool_true(), nil}, context, context_updates)
   end
 
   defp do_lex(
-         %Context{src_rest: <<?f, ?a, ?l, ?s, ?e, rest::binary>>} = context
+         %Context{src_rest: <<"false", rest::binary>>} = context
        ) do
-    value = "false"
-
     context_updates = [
       src_rest: rest,
       chars_since_last_newline:
-        context.chars_since_last_newline + String.length(value)
+        context.chars_since_last_newline + 5
     ]
 
-    return_lex({Token.bool_false(), value}, context, context_updates)
+    return_lex({Token.bool_false(), false}, context, context_updates)
+  end
+
+  defp do_lex(%Context{src_rest: <<"not", rest::binary>>} = context) do
+    context_updates = [
+      src_rest: rest,
+      chars_since_last_newline: context.chars_since_last_newline + 3
+    ]
+
+    return_lex({Token.negate(), nil}, context, context_updates)
+  end
+
+  defp do_lex(%Context{src_rest: <<"eq", rest::binary>>} = context) do
+    context_updates = [
+      src_rest: rest,
+      chars_since_last_newline: context.chars_since_last_newline + 2
+    ]
+
+    return_lex({Token.eq(), nil}, context, context_updates)
+  end
+
+  defp do_lex(%Context{src_rest: <<"if", rest::binary>>} = context) do
+    context_updates = [
+      src_rest: rest,
+      chars_since_last_newline: context.chars_since_last_newline + 2
+    ]
+
+    return_lex({Token.cond_if(), nil}, context, context_updates)
+  end
+
+  defp do_lex(%Context{src_rest: <<"gt", rest::binary>>} = context) do
+    context_updates = [
+      src_rest: rest,
+      chars_since_last_newline: context.chars_since_last_newline + 2
+    ]
+
+    return_lex({Token.gt(), nil}, context, context_updates)
+  end
+
+  defp do_lex(%Context{src_rest: <<"lt", rest::binary>>} = context) do
+    context_updates = [
+      src_rest: rest,
+      chars_since_last_newline: context.chars_since_last_newline + 2
+    ]
+
+    return_lex({Token.lt(), nil}, context, context_updates)
+  end
+
+  defp do_lex(%Context{src_rest: <<"lte", rest::binary>>} = context) do
+    context_updates = [
+      src_rest: rest,
+      chars_since_last_newline: context.chars_since_last_newline + 3
+    ]
+
+    return_lex({Token.lte(), nil}, context, context_updates)
+  end
+
+  defp do_lex(%Context{src_rest: <<"gte", rest::binary>>} = context) do
+    context_updates = [
+      src_rest: rest,
+      chars_since_last_newline: context.chars_since_last_newline + 3
+    ]
+
+    return_lex({Token.gte(), nil}, context, context_updates)
+  end
+
+  defp do_lex(
+         %Context{src_rest: <<"deffn", rest::binary>>} = context
+       ) do
+    context_updates = [
+      src_rest: rest,
+      chars_since_last_newline: context.chars_since_last_newline + 5
+    ]
+
+    return_lex({Token.deffn(), nil}, context, context_updates)
+  end
+
+  defp do_lex(%Context{src_rest: <<"ass", rest::binary>>} = context) do
+    context_updates = [
+      src_rest: rest,
+      chars_since_last_newline: context.chars_since_last_newline + 3
+    ]
+
+    return_lex({Token.ass(), nil}, context, context_updates)
+  end
+
+  defp do_lex(%Context{src_rest: <<"let", rest::binary>>} = context) do
+    context_updates = [
+      src_rest: rest,
+      chars_since_last_newline: context.chars_since_last_newline + 3
+    ]
+
+    return_lex({Token.let(), nil}, context, context_updates)
   end
 
   # identifier base case
   defp do_lex(%Context{} = context) do
-    {value, type, rest} =
+    {value, rest} =
       case parse_identifier(context) do
-        {:ok, {value, type}, rest} ->
-          {value, type, rest}
+        {:ok, value, rest} ->
+          {value, rest}
 
         {:error, msg} ->
           error_log_and_die(Context.location(context), msg)
@@ -343,7 +436,7 @@ defmodule Elil.Lexer do
         context.chars_since_last_newline + String.length(value)
     ]
 
-    return_lex({type, value}, context, context_updates)
+    return_lex({Token.ident(), value}, context, context_updates)
   end
 
   # Used in the whitespace and comment cases, where we still want to update
@@ -360,7 +453,7 @@ defmodule Elil.Lexer do
       value: value,
       source_location: %SourceLocation{
         row: Context.current_row(context),
-        column: Context.current_column(context),
+        col: Context.current_column(context),
         file_path: context.file_path
       }
     }
@@ -388,14 +481,7 @@ defmodule Elil.Lexer do
       |> Enum.reverse()
       |> List.to_string()
 
-    type =
-      if result in @keywords do
-        Token.kwd()
-      else
-        Token.ident()
-      end
-
-    {:ok, {result, type}, rest}
+    {:ok, result, rest}
   end
 
   defp parse_integer(context, result \\ [])

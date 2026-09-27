@@ -5,6 +5,9 @@ defmodule Elil.Context do
 
   defmodule Frame do
     defstruct scopes: []
+
+    def new(init) when is_struct(init, Elil.Context.Scope),
+      do: %__MODULE__{scopes: [init]}
   end
 
   defmodule Scope do
@@ -53,8 +56,7 @@ defmodule Elil.Context do
 
   @impl true
   def handle_call({:push_frame}, _from, %__MODULE__{} = state) do
-    frame = struct(Frame, scopes: [%Scope{}])
-    state = %__MODULE__{state | frames: [frame | state.frames]}
+    state = %__MODULE__{state | frames: [Frame.new(%Scope{}) | state.frames]}
     {:reply, {:ok}, state}
   end
 

@@ -1,6 +1,6 @@
 defmodule Elil.Utils do
   defmodule SourceLocation do
-    defstruct [:file_path, :row, :column]
+    defstruct [:file_path, :row, :col]
   end
 
   defmacro todo(msg \\ "Not implemented") do
@@ -97,5 +97,24 @@ defmodule Elil.Utils do
 
     {{first_res, first_end - first_start},
      {second_res, second_end - second_start}}
+  end
+
+  def print_lexer(%Elil.Lexer.Token{source_location: loc} = token) do
+    # TODO: these tabs work for most places, but since the printer only knows a
+    # token at a time, it cannot always pretty print. It needs to know the
+    # length of the maximum string to ensure always pretty printing.
+    IO.write("#{loc.file_path}:#{loc.row}:#{loc.col}: \t")
+    print_token(token)
+    IO.write("\n")
+  end
+
+  defp print_token(%Elil.Lexer.Token{value: v} = token)
+       when v in [nil, "", []] do
+    IO.write("#{Atom.to_string(token.token)}")
+  end
+
+  defp print_token(%Elil.Lexer.Token{value: v} = token) do
+    # TODO: escape newlines and such in v
+    IO.write("#{Atom.to_string(token.token)}\t#{to_string(v)}")
   end
 end
