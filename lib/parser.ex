@@ -2,8 +2,6 @@ defmodule Elil.Parser do
   alias Elil.Lexer
   alias Elil.Lexer.Token
   alias Elil.Utils.SourceLocation
-  import Elil.Utils
-  require Elil.Utils
 
   defmodule Node do
     @enforce_keys :source_location
@@ -53,6 +51,23 @@ defmodule Elil.Parser do
     ]
   end
 
+  defguardp is_keyword(t)
+            when t in [
+                   :let,
+                   :ass,
+                   :deffn,
+                   :cond_if,
+                   :lt,
+                   :lte,
+                   :gt,
+                   :gte,
+                   :eq,
+                   :negate
+                 ]
+
+  defguardp is_beginning_of_statement_or_expression(t)
+            when t === :ident or is_keyword(t)
+
   def parse(lexer_pid) when is_pid(lexer_pid) do
     {:ok, list} = parse_root_term_list(lexer_pid)
 
@@ -63,7 +78,7 @@ defmodule Elil.Parser do
        source_location:
          struct!(SourceLocation,
            row: 0,
-           column: 0,
+           col: 0,
            file_path: Lexer.get_file_path(lexer_pid)
          )
      }}
@@ -123,7 +138,8 @@ defmodule Elil.Parser do
       %Token{token: :oparen} ->
         case Lexer.shift(pid) do
           # handle standalone terms
-          %Token{token: token} when token in [:ident, :kwd] ->
+          %Token{token: token}
+          when is_beginning_of_statement_or_expression(token) ->
             {:ok, term} = parse_term(pid)
             parse_scope_term_list(pid, [term | acc])
 
@@ -153,9 +169,127 @@ defmodule Elil.Parser do
 
         {:ok, node}
 
-      %Token{token: :kwd} ->
-        node = parse_kwd(pid)
-        {:ok, node}
+      %Token{token: :let} ->
+        case Lexer.shift(pid) do
+          %Token{token: :ident} = lexer ->
+            ident = parse_ident(pid)
+            {:ok, term} = parse_params(pid)
+            # hard assert for now.
+            1 = length(term)
+
+            {:ok,
+             struct!(Node,
+               type: Node.Type.let(),
+               body: ident,
+               params: term,
+               source_location: lexer.source_location
+             )}
+
+          %Token{} = lexer ->
+            Elil.Logger.error_log_and_die(
+              lexer,
+              "a valid identifier is expected when doing a \"let\" binding, got: :#{Atom.to_string(lexer.token)}"
+            )
+        end
+
+      %Token{token: :ass} ->
+        case Lexer.shift(pid) do
+          %Token{token: :ident} = lexer ->
+            ident = parse_ident(pid)
+            {:ok, term} = parse_params(pid)
+            # hard assert for now.
+            1 = length(term)
+
+            {:ok,
+             struct!(Node,
+               type: Node.Type.ass(),
+               body: ident,
+               params: term,
+               source_location: lexer.source_location
+             )}
+
+          %Token{} = lexer ->
+            Elil.Logger.error_log_and_die(
+              lexer,
+              "a valid identifier is expected when doing a \"let\" binding, got: :#{Atom.to_string(lexer.token)}"
+            )
+        end
+
+      %Token{token: :deffn} = lexer ->
+        Lexer.shift(pid)
+        fn_name = parse_ident(pid)
+
+        {:ok, fn_params} = parse_func_params(pid)
+
+        %Token{token: :oparen} = Lexer.current(pid)
+        Lexer.shift(pid)
+
+        {:ok, body} =
+          parse_scope_term_list(pid)
+          |> then(
+            &{elem(&1, 0),
+             struct!(Node,
+               type: Node.Type.fn_body(),
+               params: elem(&1, 1),
+               source_location: lexer.source_location
+             )}
+          )
+
+        Lexer.shift(pid)
+
+        params = [fn_params: fn_params, fn_body: body]
+
+        {:ok,
+         struct!(Node,
+           type: Node.Type.deffn(),
+           body: fn_name,
+           params: params,
+           source_location: lexer.source_location
+         )}
+
+      %Token{token: :lt} = lexer ->
+        Lexer.shift(pid)
+        {:ok, params} = parse_params(pid)
+
+        {:ok,
+         struct!(Node,
+           type: Node.Type.lt(),
+           body: lexer.value,
+           params: params,
+           source_location: lexer.source_location
+         )}
+
+      %Token{token: :cond_if} = lexer ->
+        %Token{token: :oparen} = Lexer.shift(pid)
+        Lexer.shift(pid)
+        {:ok, c} = parse_term(pid)
+        Lexer.shift(pid)
+
+        {:ok, t} = parse_if_branch(pid)
+
+        e =
+          case Lexer.current(pid) do
+            %Token{token: :oparen} ->
+              Lexer.shift(pid)
+
+              parse_if_branch(pid)
+              |> then(fn {:ok, e} -> e end)
+
+            _ ->
+              nil
+          end
+
+        # @see logging erros this just hard fails, it should probably have a nice message :)
+        %Token{token: :cparen} = Lexer.current(pid)
+        Lexer.shift(pid)
+
+        {:ok,
+         struct!(Node,
+           type: Node.Type.cond_if(),
+           body: c,
+           params: [then: t, else: e],
+           source_location: lexer.source_location
+         )}
 
       %Token{token: :bool_true} = lexer ->
         lit = parse_lit(pid)
@@ -375,140 +509,6 @@ defmodule Elil.Parser do
           end
 
         do_parse_func_params(pid, [node | acc])
-    end
-  end
-
-  defp parse_kwd(pid) when is_pid(pid) do
-    # TODO: maybe the pattern here should be more like parse_ident, where it simply parses the value
-    #  instead of parsing the entire node. It makes for an inconsitent API, but it also consolidates
-    #  the logic for "next token expectations" in a differnet place than the main parsing recursion.
-    #  Also we do the building of the ident node both here and in the main recursion loop in parse_term.
-
-    #  TLDR; I don't know which of the approaches are better, but the one explained here leaves for
-    #  more flexibility in the future maybe.
-
-    # TODO: much of this code looks similar. I feel like we could do it in a much simpler manner.
-    #  Especially since much of it looks like something out of parse_term() when hitting an ident.
-    case Lexer.current(pid) do
-      %Token{value: "let"} ->
-        case Lexer.shift(pid) do
-          %Token{token: :ident} = lexer ->
-            ident = parse_ident(pid)
-            {:ok, term} = parse_params(pid)
-            # hard assert for now.
-            1 = length(term)
-
-            struct!(Node,
-              type: Node.Type.let(),
-              body: ident,
-              params: term,
-              source_location: lexer.source_location
-            )
-
-          %Token{} = lexer ->
-            Elil.Logger.error_log_and_die(
-              lexer,
-              "a valid identifier is expected when doing a \"let\" binding, got: :#{Atom.to_string(lexer.token)}"
-            )
-        end
-
-      %Token{value: "ass"} ->
-        case Lexer.shift(pid) do
-          %Token{token: :ident} = lexer ->
-            ident = parse_ident(pid)
-            {:ok, term} = parse_params(pid)
-            # hard assert for now.
-            1 = length(term)
-
-            struct!(Node,
-              type: Node.Type.ass(),
-              body: ident,
-              params: term,
-              source_location: lexer.source_location
-            )
-
-          %Token{} = lexer ->
-            Elil.Logger.error_log_and_die(
-              lexer,
-              "a valid identifier is expected when doing a \"let\" binding, got: :#{Atom.to_string(lexer.token)}"
-            )
-        end
-
-      %Token{value: "deffn"} = lexer ->
-        Lexer.shift(pid)
-        fn_name = parse_ident(pid)
-
-        {:ok, fn_params} = parse_func_params(pid)
-
-        %Token{token: :oparen} = Lexer.current(pid)
-        Lexer.shift(pid)
-
-        {:ok, body} =
-          parse_scope_term_list(pid)
-          |> then(
-            &{elem(&1, 0),
-             struct!(Node,
-               type: Node.Type.fn_body(),
-               params: elem(&1, 1),
-               source_location: lexer.source_location
-             )}
-          )
-
-        Lexer.shift(pid)
-
-        params = [fn_params: fn_params, fn_body: body]
-
-        struct!(Node,
-          type: Node.Type.deffn(),
-          body: fn_name,
-          params: params,
-          source_location: lexer.source_location
-        )
-
-      %Token{value: "lt"} = lexer ->
-        Lexer.shift(pid)
-        {:ok, params} = parse_params(pid)
-
-        struct!(Node,
-          type: Node.Type.lt(),
-          body: lexer.value,
-          params: params,
-          source_location: lexer.source_location
-        )
-
-      %Token{value: "if"} = lexer ->
-        %Token{token: :oparen} = Lexer.shift(pid)
-        Lexer.shift(pid)
-        {:ok, c} = parse_term(pid)
-        Lexer.shift(pid)
-
-        {:ok, t} = parse_if_branch(pid)
-
-        e =
-          case Lexer.current(pid) do
-            %Token{token: :oparen} ->
-              Lexer.shift(pid)
-
-              parse_if_branch(pid)
-              |> then(fn {:ok, e} -> e end)
-
-            _ ->
-              nil
-          end
-
-        # @see logging erros this just hard fails, it should probably have a nice message :)
-        %Token{token: :cparen} = Lexer.current(pid)
-        Lexer.shift(pid)
-
-        struct!(Node,
-          type: Node.Type.cond_if(),
-          body: c,
-          params: [then: t, else: e],
-          source_location: lexer.source_location
-        )
-
-      %Token{} = lexer ->
-        todo("unhandled keyword: \"#{lexer.value}\"")
     end
   end
 

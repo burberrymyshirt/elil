@@ -3,12 +3,16 @@ defmodule Elil.Context do
   alias Elil.Parser.Node
   use GenServer
 
-  defmodule Frame do
-    defstruct scopes: []
-  end
-
   defmodule Scope do
     defstruct symbols: %{}, local_symbols: %{}
+
+    def new(), do: %__MODULE__{}
+  end
+
+  defmodule Frame do
+    defstruct scopes: []
+
+    def new(), do: %__MODULE__{scopes: [Scope.new()]}
   end
 
   defstruct frames: []
@@ -53,8 +57,7 @@ defmodule Elil.Context do
 
   @impl true
   def handle_call({:push_frame}, _from, %__MODULE__{} = state) do
-    frame = struct(Frame, scopes: [%Scope{}])
-    state = %__MODULE__{state | frames: [frame | state.frames]}
+    state = %__MODULE__{state | frames: [Frame.new() | state.frames]}
     {:reply, {:ok}, state}
   end
 

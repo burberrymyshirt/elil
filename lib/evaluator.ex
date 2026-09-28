@@ -37,6 +37,9 @@ defmodule Elil.Evaluator do
         ""
       end
 
+      def to_string(%Value{type: :bool_true}), do: "true"
+      def to_string(%Value{type: :bool_false}), do: "false"
+
       def to_string(%Value{} = value) do
         Kernel.to_string(value.value)
       end
@@ -144,7 +147,7 @@ defmodule Elil.Evaluator do
     if Elil.Cmd.get_option_bool("print_lexer") do
       # TODO: knowledge of the lexer module should probably be abstracted to
       # lib/cmd.ex instead of being inside the evaluator. Idk, maybe.
-      Lexer.lex_entire_file(file, file_path, &IO.inspect(&1))
+      Lexer.lex_entire_file(file, file_path, &print_lexer(&1))
       :ok
     else
       {:ok, lexer_pid} =

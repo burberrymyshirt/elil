@@ -6,7 +6,7 @@ defmodule Elil.Logger do
 
   def error_log_and_die(
         %{
-          source_location: %{row: row, column: col, file_path: file_path} = loc
+          source_location: %{row: row, col: col, file_path: file_path} = loc
         },
         msg
       )
@@ -16,12 +16,12 @@ defmodule Elil.Logger do
   end
 
   def error_log_and_die(
-        %{row: row, column: col, file_path: file_path} = pos,
+        %{row: row, col: col, file_path: file_path} = pos,
         msg
       )
       when is_binary(msg) and is_integer(row) and is_integer(col) and
              is_binary(file_path) do
-    error_log_and_die(pos.file_path, {pos.row, pos.column}, msg)
+    error_log_and_die(pos.file_path, {pos.row, pos.col}, msg)
   end
 
   def error_log_and_die(file_path, msg)
