@@ -182,7 +182,7 @@ defmodule Elil.Lexer do
   end
 
   defguardp valid_identifier_char(char)
-            when char in ?A..?z or
+            when char in ?A..?Z or char in ?a..?z or
                    char in [?_, ?-, ??, ?æ, ?ø, ?å, ?Æ, ?Ø, ?Å]
 
   defguardp is_token_delimiter(char)
