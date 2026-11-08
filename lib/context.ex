@@ -1,6 +1,6 @@
 defmodule Elil.Context do
+  alias Elil.Parser.Reference, as: ReferenceNode
   alias Elil.Evaluator.Value
-  alias Elil.Parser.Node
   use GenServer
 
   defmodule Scope do
@@ -12,7 +12,7 @@ defmodule Elil.Context do
   defmodule Frame do
     defstruct scopes: []
 
-    def new(), do: %__MODULE__{scopes: [Scope.new()]}
+    def new(), do: %__MODULE__{}
   end
 
   defstruct frames: []
@@ -34,16 +34,17 @@ defmodule Elil.Context do
     GenServer.call(pid, {:define_symbol, var_name, value, into})
   end
 
-  def reassign(pid, var_name, %Value{type: type} = value)
-      when is_pid(pid) and is_binary(var_name) and type !== :void do
+  def reassign(pid, var_name, %Value{type: type} = value, into)
+      when is_pid(pid) and is_binary(var_name) and type !== :void and
+             is_atom(into) do
     # TODO: @see logging errors
     # cannot assign void to anything, so we hard fail for now
 
-    GenServer.call(pid, {:reassign, var_name, value})
+    GenServer.call(pid, {:reassign, var_name, value, into})
   end
 
-  def get_symbol(pid, %Node{type: :ident} = node) when is_pid(pid) do
-    get_symbol(pid, node.body)
+  def get_symbol(pid, %ReferenceNode{} = node) when is_pid(pid) do
+    get_symbol(pid, node.name)
   end
 
   def get_symbol(pid, var_name) when is_pid(pid) when is_pid(var_name) do
@@ -52,7 +53,7 @@ defmodule Elil.Context do
 
   @impl true
   def init(_initial) do
-    {:ok, %__MODULE__{}}
+    {:ok, %__MODULE__{frames: [Frame.new()]}}
   end
 
   @impl true
@@ -127,12 +128,19 @@ defmodule Elil.Context do
 
   @impl true
   def handle_call(
-        {:reassign, name, %Value{type: type} = value},
+        {:reassign, name, %Value{type: type} = value, into},
         _from,
         %__MODULE__{} = state
       )
-      when type !== :void and is_binary(name) do
-    case do_reassign(name, state.frames, value) do
+      when type !== :void and is_binary(name) and is_atom(into) do
+    key =
+      if into === :global do
+        :symbols
+      else
+        :local_symbols
+      end
+
+    case do_reassign(name, state.frames, value, key) do
       # scopes cannot change if the variable is undefined, so ignore them.
       {:undefined, _} ->
         {:reply, {:undefined}, state}
@@ -199,34 +207,55 @@ defmodule Elil.Context do
     end
   end
 
-  defp do_reassign(_name, [], %Value{} = _value), do: {:undefined, nil}
+  defp do_reassign(_name, [], %Value{} = _value, _key), do: {:undefined, nil}
 
-  defp do_reassign(name, [%Frame{} = frame | rest], %Value{} = value)
-       when is_binary(name) do
-    case do_reassign_scope(name, frame.scopes, value) do
+  defp do_reassign(name, [%Frame{} = frame | rest], %Value{} = value, key)
+       when is_binary(name)
+       when is_atom(key) do
+    case do_reassign_scope(name, frame.scopes, value, key) do
       {:ok, scopes} ->
         {:ok, [%Frame{frame | scopes: scopes} | rest]}
 
       {:undefined, _} ->
-        case do_reassign(name, rest, value) do
+        case do_reassign(name, rest, value, key) do
           {:undefined, _} -> {:undefined, nil}
           {:ok, rest} -> [frame | rest]
         end
     end
   end
 
-  defp do_reassign_scope(_name, [], %Value{} = _value), do: {:undefined, nil}
+  defp do_reassign_scope(_name, [], %Value{} = _value, _key),
+    do: {:undefined, nil}
 
-  defp do_reassign_scope(name, [%Scope{} = scope | rest], %Value{} = value)
-       when is_binary(name) do
-    if Map.has_key?(scope.symbols, name) do
-      {:ok,
-       [%Scope{scope | symbols: Map.put(scope.symbols, name, value)} | rest]}
-    else
-      case do_reassign_scope(name, rest, value) do
-        {:ok, rest} -> {:ok, [scope | rest]}
-        {:undefined, _} -> {:undefined, nil}
-      end
+  defp do_reassign_scope(name, [%Scope{} = scope | rest], %Value{} = value, key)
+       when is_binary(name)
+       when is_atom(key) do
+    # TODO: this sucks ass ... Hopefully it is obvious why .
+    case key do
+      :symbols ->
+        if Map.has_key?(scope.symbols, name) do
+          {:ok,
+           [%Scope{scope | symbols: Map.put(scope.symbols, name, value)} | rest]}
+        else
+          case do_reassign_scope(name, rest, value, key) do
+            {:ok, rest} -> {:ok, [scope | rest]}
+            {:undefined, _} -> {:undefined, nil}
+          end
+        end
+
+      :local_symbols ->
+        if Map.has_key?(scope.local_symbols, name) do
+          {:ok,
+           [
+             %Scope{scope | local_symbols: Map.put(scope.symbols, name, value)}
+             | rest
+           ]}
+        else
+          case do_reassign_scope(name, rest, value, key) do
+            {:ok, rest} -> {:ok, [scope | rest]}
+            {:undefined, _} -> {:undefined, nil}
+          end
+        end
     end
   end
 end

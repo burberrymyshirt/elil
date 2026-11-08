@@ -1,4 +1,5 @@
 defmodule Elil.Logger do
+  # TODO: get rid of this. Only used in Lexer I think.
   def error_log_and_die(msg) when is_binary(msg) do
     error_log(msg)
     exit({:shutdown, 1})
@@ -22,12 +23,6 @@ defmodule Elil.Logger do
       when is_binary(msg) and is_integer(row) and is_integer(col) and
              is_binary(file_path) do
     error_log_and_die(pos.file_path, {pos.row, pos.col}, msg)
-  end
-
-  def error_log_and_die(file_path, msg)
-      when is_binary(file_path) and is_binary(msg) do
-    error_log(file_path, msg)
-    exit({:shutdown, 1})
   end
 
   def error_log_and_die(file_path, {row, col} = pos, msg)

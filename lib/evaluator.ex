@@ -1,10 +1,17 @@
 defmodule Elil.Evaluator do
-  require Elil.Utils
-  import Elil.Utils
-  alias Elil.Utils.SourceLocation
-  alias Elil.Lexer
-  alias Elil.Parser.Node
   alias Elil.Context
+  alias Elil.Lexer
+  alias Elil.Parser.Boolean, as: BooleanNode
+  alias Elil.Parser.Condition, as: ConditionNode
+  alias Elil.Parser.Definition, as: DefinitionNode
+  alias Elil.Parser.Integer, as: IntegerNode
+  alias Elil.Parser.Parameter, as: ParameterNode
+  alias Elil.Parser.Reference, as: ReferenceNode
+  alias Elil.Parser.Scope, as: ScopeNode
+  alias Elil.Parser.String, as: StringNode
+  alias Elil.Utils.SourceLocation
+  import Elil.Utils
+  require Elil.Utils
 
   defmodule Value do
     @enforce_keys [:type]
@@ -14,22 +21,12 @@ defmodule Elil.Evaluator do
     ]
 
     defmodule Type do
-      @compile {:inline,
-                int: 0,
-                void: 0,
-                string: 0,
-                bool_false: 0,
-                bool_true: 0,
-                func: 0,
-                bool_type: 1}
+      @compile {:inline, int: 0, void: 0, string: 0, func: 0, bool: 0}
       def int(), do: :int
       def void(), do: :void
       def string(), do: :string
       def func(), do: :func
-      def bool_true(), do: :bool_true
-      def bool_false(), do: :bool_false
-      def bool_type(false), do: bool_false()
-      def bool_type(true), do: bool_true()
+      def bool(), do: :bool
     end
 
     defimpl String.Chars, for: __MODULE__ do
@@ -37,8 +34,8 @@ defmodule Elil.Evaluator do
         ""
       end
 
-      def to_string(%Value{type: :bool_true}), do: "true"
-      def to_string(%Value{type: :bool_false}), do: "false"
+      def to_string(%Value{value: true, type: :bool}), do: "true"
+      def to_string(%Value{value: false, type: :bool}), do: "false"
 
       def to_string(%Value{} = value) do
         Kernel.to_string(value.value)
@@ -51,16 +48,8 @@ defmodule Elil.Evaluator do
       struct!(Value, type: Type.void())
     end
 
-    def new(v, :bool) do
-      new(nil, Type.bool_type(v))
-    end
-
-    def new(_v, :bool_true) do
-      struct!(Value, type: Type.bool_true(), value: 1)
-    end
-
-    def new(_v, :bool_false) do
-      struct!(Value, type: Type.bool_false(), value: 0)
+    def new(v, :bool) when is_boolean(v) do
+      struct!(Value, type: Type.bool(), value: v)
     end
 
     def new(v, :string) when not is_nil(v) do
@@ -88,6 +77,7 @@ defmodule Elil.Evaluator do
 
           # @see logging errors
           v ->
+
             Elil.Logger.error_log_and_die(
               "unable to parse value \"#{v}\" to an integer"
             )
@@ -110,7 +100,7 @@ defmodule Elil.Evaluator do
   end
 
   defguard is_scope_type(type) when type in [:root, :scope, :fn_body]
-  defguard is_lit(type) when type in [:dqstr, :int, :bool_true, :bool_false]
+  defguard is_lit(type) when type in [BooleanNode, IntegerNode, StringNode]
 
   @elil_types [:string, :int, :func, :mixed]
 
@@ -153,9 +143,8 @@ defmodule Elil.Evaluator do
       {:ok, lexer_pid} =
         GenServer.start_link(Lexer, {file_path, file}, hibernate_after: 100)
 
-      {:ok, root_node} = Elil.Parser.parse(lexer_pid)
+      {:ok, %ScopeNode{} = root_node} = Elil.Parser.parse(lexer_pid)
       GenServer.stop(lexer_pid)
-      %Node{type: :root} = root_node
 
       if Elil.Cmd.get_option_bool("print_ast") do
         IO.inspect(root_node)
@@ -166,7 +155,7 @@ defmodule Elil.Evaluator do
         #  I don't really wanna use exceptions. I feel like they might be a crutch for a poor recursive design.
         #  Although that might be wrong and exceptions are just the way to go. Who knows.
 
-        do_eval(context_pid, root_node)
+        eval_node(context_pid, root_node)
 
         GenServer.stop(context_pid)
       end
@@ -175,76 +164,55 @@ defmodule Elil.Evaluator do
     end
   end
 
-  defp do_eval(pid, %Node{type: :root} = node) when is_pid(pid) do
-    eval_node(pid, node)
-  end
-
-  defp eval_node(pid, %Node{type: :fn_body} = node) when is_pid(pid) do
-    eval_params(pid, node)
-  end
-
-  defp eval_node(pid, %Node{type: :root} = node) when is_pid(pid) do
-    Context.push_frame(pid)
-    eval_params(pid, node)
-    Context.pop_frame(pid)
-  end
-
-  defp eval_node(pid, %Node{type: :scope, body: nil} = node)
-       when is_pid(pid) do
-    {:ok} = Context.push_scope(pid)
-    eval_params(pid, node)
-    {:ok} = Context.pop_scope(pid)
-  end
-
-  defp eval_node(pid, %Node{type: type} = node)
-       when is_pid(pid) and is_lit(type) do
+  defp eval_node(pid, %m{} = node) when is_pid(pid) and is_lit(m) do
     eval_lit(pid, node)
   end
 
-  defp eval_node(pid, %Node{type: :let} = node) when is_pid(pid) do
+  defp eval_node(pid, %DefinitionNode{type: :var} = node) when is_pid(pid) do
     define_symbol(pid, node, :local)
   end
 
-  defp eval_node(pid, %Node{type: :glet} = node) when is_pid(pid) do
+  defp eval_node(pid, %DefinitionNode{type: t} = node)
+       when is_pid(pid) and t in [:gvar, :func] do
     define_symbol(pid, node, :global)
   end
 
-  defp eval_node(pid, %Node{type: :deffn} = node) when is_pid(pid) do
-    define_symbol(pid, node, :global)
-  end
-
-  defp eval_node(pid, %Node{type: :ass} = node) when is_pid(pid) do
+  defp eval_node(pid, %DefinitionNode{type: :ass} = node) when is_pid(pid) do
+    # todo("rename eval_ass to reassign_symbol, like the define_symbol above.")
     eval_ass(pid, node)
   end
 
-  defp eval_node(pid, %Node{type: :lt} = node) when is_pid(pid) do
+  defp eval_node(pid, %DefinitionNode{type: :gass} = node) when is_pid(pid) do
+    # todo("rename eval_gass to reassign_symbol, like the define_symbol above.")
+    eval_gass(pid, node)
+  end
+
+  defp eval_node(pid, %ReferenceNode{name: :lt} = node) when is_pid(pid) do
     eval_bool(pid, node)
   end
 
   # an ident from the parser is expected to be a name of a variable or function.
-  defp eval_node(pid, %Node{type: :ident} = node) when is_pid(pid) do
-    eval_ident(pid, node)
+  defp eval_node(pid, %type{} = node)
+       when is_pid(pid) and type in [ReferenceNode] do
+    eval_reference(pid, node)
   end
 
   # an ident from the parser is expected to be a name of a variable or function.
-  defp eval_node(pid, %Node{type: :cond_if} = node) when is_pid(pid) do
-    %Value{} = evaled_cond = eval_node(pid, node.body)
+  defp eval_node(pid, %ConditionNode{} = node) when is_pid(pid) do
+    %Value{} = evaled_cond = eval_node(pid, node.condition)
 
-    case evaled_cond.type do
-      t when t === :bool_true ->
-        Keyword.get(node.params, :then)
-        |> then(&eval_node(pid, &1))
+    case evaled_cond do
+      %Value{value: true} ->
+        eval_node(pid, node.then)
 
-      t when t === :bool_false ->
-        then = Keyword.get(node.params, :else)
-
-        if is_nil(then) do
+      %Value{value: false} ->
+        if is_nil(node.otherwise) do
           struct!(Value, type: Value.Type.void())
         else
-          eval_node(pid, then)
+          eval_node(pid, node.otherwise)
         end
 
-      a when is_atom(a) ->
+      %Value{type: a} when is_atom(a) ->
         # @see logging erros
         Elil.Logger.error_log_and_die(
           "expected boolean when calling if-statement. Got type: \":#{Atom.to_string(a)}\""
@@ -252,82 +220,81 @@ defmodule Elil.Evaluator do
     end
   end
 
-  defp eval_params(pid, %Node{type: type, body: nil} = node)
-       when is_pid(pid) and is_scope_type(type) do
-    node.params
+  defp eval_node(pid, %ScopeNode{} = node) when is_pid(pid) do
+    {:ok} = Context.push_scope(pid)
+    eval_params(pid, node)
+    {:ok} = Context.pop_scope(pid)
+  end
+
+  defp eval_params(pid, %ReferenceNode{} = node) when is_pid(pid) do
+    node.value
     |> Enum.map(&eval_node(pid, &1))
   end
 
-  # TODO: could be merged with the eval_params/2 above, idk if it is actually important that the body is nil.
-  #  I just wanna assert as much as possible right now. I don't know if we need named scopes in the future,
-  #  but in that case I would like to keep the assert for now so I know where refactoring is needed.
-  defp eval_params(pid, %Node{type: type} = node)
-       when is_pid(pid) and type in [:let, :ident] do
-    node.params
+  defp eval_params(pid, %ScopeNode{} = node) when is_pid(pid) do
+    node.value
     |> Enum.map(&eval_node(pid, &1))
   end
 
-  defp eval_expr(pid, %Node{type: :ident} = node) when is_pid(pid) do
-    case eval_func(pid, node.body, node.params) do
-      {:err, msg} -> Elil.Logger.error_log_and_die(node, msg)
-      %Value{} = value -> value
-    end
-  end
-
-  defp eval_func(pid, func, args)
-       when is_binary(func) and is_list(args) and is_pid(pid) do
+  defp eval_builtins(pid, %ReferenceNode{name: func, value: args})
+       when is_binary(func) and (is_list(args) or is_nil(args)) and is_pid(pid) do
     # TODO: @see logging errors the current logging just bubbles up to the calling function,
     # which doesn't take specific arguments or anything into account. Good enough
     # for now, but at a later point, I would like to have errors be more pin-pointable and direct
     case func do
       "add" ->
-        Enum.map(args, fn v ->
-          eval_node(pid, v)
-          |> to_string()
-          |> Integer.parse(10)
+        # hard assert for now
+        true = is_list(args)
+
+        Enum.map(args, fn
+          v ->
+            %Value{} = eval_node(pid, v)
         end)
         |> Enum.reduce(0, fn
-          {v, rem}, _acc when is_list(rem) and length(rem) > 0 ->
-            {:err,
-             "function add() expects only integers as arguments, got #{v}"}
+          %Value{type: :int} = v, acc ->
+            acc + v.value
 
-          {v, _rem}, acc when is_integer(v) ->
-            v + acc
-
-          v, _acc ->
+          %Value{type: t} = _v, _acc ->
+            # TODO: error log here, instead of failing match
             {:err,
-             "function add() expects only integers as arguments, got #{v}"}
+             "function add() expects only integers as arguments, got #{to_string(t)}"}
         end)
         |> Value.new(Value.Type.int())
 
       "sub" ->
-        Enum.map(args, fn
-          v ->
-            eval_node(pid, v)
-            |> to_string()
-            |> Integer.parse(10)
-        end)
-        |> Enum.reduce(0, fn
-          {v, rem}, _acc when is_list(rem) and length(rem) > 0 ->
-            {:err,
-             "function sub() expects only integers as arguments, got #{v}"}
+        # hard assert for now
+        true = is_list(args)
 
-          {v, _rem}, acc when is_integer(v) ->
-            v + acc
+        [%Value{type: :int} = head | tail] =
+          Enum.map(args, fn
+            v ->
+              %Value{} = eval_node(pid, v)
+          end)
 
-          v, _acc ->
+        Enum.reduce(tail, head.value, fn
+          %Value{type: :int} = v, acc ->
+            acc - v.value
+
+          %Value{type: t} = _v, _acc ->
+            # TODO: error log here, instead of failing match
             {:err,
-             "function sub() expects only integers as arguments, got #{v}"}
+             "function sub() expects only integers as arguments, got #{to_string(t)}"}
         end)
         |> Value.new(Value.Type.int())
 
       "echo" ->
+        # hard assert for now
+        true = is_list(args)
+
         Enum.map(args, &eval_node(pid, &1))
         |> Enum.map(&to_string/1)
         |> Enum.map(&IO.write/1)
         |> Value.new(Value.Type.void())
 
       "eval" ->
+        # hard assert for now
+        true = is_list(args)
+
         # TODO: make it fail if more are given or something.
         [arg | _] = args
 
@@ -339,41 +306,38 @@ defmodule Elil.Evaluator do
         |> Value.new(Value.Type.void())
 
       _ ->
-        {:err, "symbol \"#{func}\" is not a defined symbol"}
+        {:err, "symbol \"#{func}\" is not defined"}
     end
   end
 
-  defp eval_lit(pid, %Node{type: :bool_true} = node) when is_pid(pid) do
-    Value.new(node.body, Value.Type.bool_true())
-  end
-
-  defp eval_lit(pid, %Node{type: :bool_false} = node) when is_pid(pid) do
-    Value.new(node.body, Value.Type.bool_false())
-  end
-
-  defp eval_lit(pid, %Node{type: :int} = node) when is_pid(pid) do
-    Value.new(node.body, Value.Type.int())
-  end
-
-  defp eval_lit(pid, %Node{type: :dqstr} = node) when is_pid(pid) do
+  defp eval_lit(pid, %StringNode{} = node) when is_pid(pid) do
     # TODO: string interpolating
-    Value.new(node.body, Value.Type.string())
+    Value.new(node.value, Value.Type.string())
   end
 
-  defp define_symbol(pid, %Node{type: :deffn} = node, into)
+  defp eval_lit(pid, %BooleanNode{} = node) when is_pid(pid) do
+    Value.new(node.value, Value.Type.bool())
+  end
+
+  defp eval_lit(pid, %IntegerNode{value: v} = _node)
+       when is_pid(pid) and is_integer(v) do
+    Value.new(v, Value.Type.int())
+  end
+
+  defp define_symbol(pid, %DefinitionNode{type: :func} = node, into)
        when is_atom(into) do
-    value = Value.new(node.params, Value.Type.func())
-    do_define_symbol(pid, node.body, value, into, node.source_location)
+    value = Value.new(node.value, Value.Type.func())
+    do_define_symbol(pid, node.name, value, into, node.source_location)
   end
 
-  defp define_symbol(pid, %Node{type: type} = node, into)
-       when is_atom(into) and type in [:let, :glet] do
+  defp define_symbol(pid, %DefinitionNode{type: type} = node, into)
+       when is_atom(into) and type in [:var, :gvar] do
     # Hard assert for now. Only one value can be assigned to a variable.
-    1 = length(node.params)
-    [head | _] = node.params
+    1 = length(node.value)
+    [head | _] = node.value
     %Value{} = value = eval_node(pid, head)
 
-    do_define_symbol(pid, node.body, value, into, node.source_location)
+    do_define_symbol(pid, node.name, value, into, node.source_location)
   end
 
   defp do_define_symbol(
@@ -396,17 +360,17 @@ defmodule Elil.Evaluator do
     end
   end
 
-  defp eval_ass(pid, %Node{type: :ass} = node) when is_pid(pid) do
+  defp eval_ass(pid, %DefinitionNode{type: :ass} = node) when is_pid(pid) do
     # Hard assert for now. Only one value can be assigned to a variable.
-    1 = length(node.params)
-    [head | _] = node.params
+    1 = length(node.value)
+    [head | _] = node.value
     %Value{} = value = eval_node(pid, head)
 
-    case Context.reassign(pid, node.body, value) do
+    case Context.reassign(pid, node.name, value, :local) do
       {:undefined} ->
         Elil.Logger.error_log_and_die(
           node,
-          "symbol \"#{to_string(node.body)}\" is undefined. To reassign something you need to define it first, using something like the \"let\" keyword."
+          "symbol \"#{to_string(node.name)}\" is undefined. To reassign something you need to define it first, using something like the \"let\" keyword."
         )
 
       _ ->
@@ -414,64 +378,84 @@ defmodule Elil.Evaluator do
     end
   end
 
-  defp eval_ident(pid, %Node{type: :ident} = node) when is_pid(pid) do
-    # TODO: figure out when we need to do a function lookup vs a variable lookup
-    case Context.get_symbol(pid, node) do
-      :undefined ->
-        # fallback to builtin functions for now.
-        # @see logging errors Maybe this should all just be put inside the scope
-        # at the beginning at some point, so we can report errors properly here
-        eval_expr(pid, node)
+  defp eval_gass(pid, %DefinitionNode{type: :gass} = node) when is_pid(pid) do
+    # Hard assert for now. Only one value can be assigned to a variable.
+    %Value{} = value = eval_node(pid, node.value)
 
-      {:ok, %Value{type: :func} = value} ->
-        {:ok, fn_params} =
-          value.value
-          |> Keyword.get(:fn_params)
-          |> resolve_func_params()
+    case Context.reassign(pid, node.name, value, :global) do
+      {:undefined} ->
+        Elil.Logger.error_log_and_die(
+          node,
+          "symbol \"#{to_string(node.name)}\" is undefined. To reassign something you need to define it first, using something like the \"let\" keyword."
+        )
 
-        params = eval_params(pid, node)
-        expect_all(params, Value)
+      _ ->
+        {:ok}
+    end
+  end
 
-        arguments =
-          case validate_func_params(params, fn_params) do
-            {:ok, arguments} ->
-              arguments
-
-            {:err, msg} ->
-              # TODO: @see logging errors
-              Elil.Logger.error_log_and_die(node, msg)
-          end
-
-        Context.push_frame(pid)
-
-        Context.define_symbol(pid, node.body, value, :local)
-
-        # TODO: This is a bit scuffed. Maybe the Value should know its own name,
-        # instead of just being the symbol key in the scope.
-        arguments
-        |> Enum.each(fn
-          {name, value} -> Context.define_symbol(pid, name, value, :local)
-        end)
-
-        fn_body = Keyword.get(value.value, :fn_body)
-        r = eval_node(pid, fn_body)
-
-        return =
-          if r !== {:ok} do
-            todo("handle function returning value. Even if it's void")
-          else
-            struct!(Value, type: Value.Type.void())
-          end
-
-        Context.pop_frame(pid)
-
-        # TODO: This return might have to be assigned to something
-        {:ok, return}
-
-      # void cannot be a vairable, so hard assert for now.
-      # TODO: @see logging errors we wanna either log that void is not valid and crash, or allow void as some sort of valid value.
-      {:ok, %Value{type: type} = value} when type != :void ->
+  defp eval_reference(pid, %ReferenceNode{} = node) when is_pid(pid) do
+    case eval_builtins(pid, node) do
+      %Value{} = value ->
         value
+
+      {:err, msg} ->
+        # TODO: figure out when we need to do a function lookup vs a variable lookup
+        case Context.get_symbol(pid, node) do
+          {:ok, %Value{type: :func} = value} ->
+            {:ok, fn_params} =
+              value.value
+              |> Keyword.get(:fn_params)
+              |> resolve_func_params()
+
+            params = eval_params(pid, node)
+            expect_all(params, Value)
+
+            arguments =
+              case validate_func_params(params, fn_params) do
+                {:ok, arguments} ->
+                  arguments
+
+                {:err, msg} ->
+                  # TODO: @see logging errors
+                  Elil.Logger.error_log_and_die(node, msg)
+              end
+
+            Context.push_frame(pid)
+            Context.push_scope(pid)
+
+            Context.define_symbol(pid, node.name, value, :local)
+
+            # TODO: This is a bit scuffed. Maybe the Value should know its own name,
+            # instead of just being the symbol key in the scope.
+            arguments
+            |> Enum.each(fn
+              {name, value} -> Context.define_symbol(pid, name, value, :local)
+            end)
+
+            fn_body = Keyword.get(value.value, :fn_body)
+            r = eval_node(pid, fn_body)
+
+            return =
+              if r !== {:ok} do
+                todo("handle function returning value. Even if it's void")
+              else
+                struct!(Value, type: Value.Type.void())
+              end
+
+            Context.pop_frame(pid) # automatically pops the scope
+
+            # TODO: This return might have to be assigned to something
+            {:ok, return}
+
+          # void cannot be a vairable, so hard assert for now.
+          # TODO: @see logging errors we wanna either log that void is not valid and crash, or allow void as some sort of valid value.
+          {:ok, %Value{type: type} = value} when type != :void ->
+            value
+
+          _ ->
+            Elil.Logger.error_log_and_die(node.source_location, msg)
+        end
     end
   end
 
@@ -481,8 +465,8 @@ defmodule Elil.Evaluator do
     {:ok, Enum.reverse(acc)}
   end
 
-  defp resolve_func_params([head | tail], acc) do
-    if not is_valid_type(Keyword.get(head.params, :type)) do
+  defp resolve_func_params([%ParameterNode{} = head | tail], acc) do
+    if not is_valid_type(head.type) do
       Elil.Logger.error_log_and_die(head, "invalid type given for argument")
     end
 
@@ -514,7 +498,7 @@ defmodule Elil.Evaluator do
 
   defp validate_single_func_param(
          %Value{type: atype} = _argument,
-         %Node{params: [type: ptype]} = _parameter
+         %ParameterNode{type: ptype} = _parameter
        )
        when is_atom(ptype) and is_atom(atype) and ptype !== atype do
     # TODO: @see logging errors The arguments here need to say which argument was wrong and stuff like that.
@@ -524,12 +508,12 @@ defmodule Elil.Evaluator do
 
   defp validate_single_func_param(
          %Value{type: atype} = argument,
-         %Node{params: [type: ptype]} = parameter
+         %ParameterNode{type: ptype} = parameter
        )
        when is_atom(ptype) and is_atom(atype) do
     # TODO: this only works for literals with no parameters. Maybe not the best idea.
     {:ok,
-     {parameter.body,
+     {parameter.name,
       struct!(Value, type: argument.type, value: argument.value)}}
   end
 
@@ -543,21 +527,21 @@ defmodule Elil.Evaluator do
     end)
   end
 
-  defp expect_parameter_count(%Node{params: params} = node, count)
+  defp expect_parameter_count(%ReferenceNode{value: params} = node, count)
        when is_list(params) and is_integer(count) do
-    if length(node.params) === count do
+    if length(node.value) === count do
       {:ok}
     else
       Elil.Logger.error_log_and_die(
         node,
-        "function: \"#{node.body}\" expected #{Integer.to_string(count)} amount of argumnets, but got: #{length(node.params)}"
+        "function: \"#{node.name}\" expected #{Integer.to_string(count)} amount of argumnets, but got: #{length(node.value)}"
       )
     end
   end
 
-  defp eval_bool(pid, %Node{type: :lt} = node) do
+  defp eval_bool(pid, %ReferenceNode{name: :lt} = node) do
     expect_parameter_count(node, 2)
-    [lt | tail] = node.params
+    [lt | tail] = node.value
     [gt | _] = tail
     lt = %Value{type: :int} = eval_node(pid, lt)
     gt = %Value{type: :int} = eval_node(pid, gt)
