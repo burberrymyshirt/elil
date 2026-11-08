@@ -271,7 +271,61 @@ defmodule Elil.Parser do
            source_location: lexer.source_location
          )}
 
+      # TODO: fix all of these static boolean definitions with global guards, so
+      #  they don't have to be duplicated...
       %Token{token: :lt} = lexer ->
+        Lexer.shift(pid)
+
+        # could pass 2 to parse_params, but I feel like it's fine to let this be variadic.
+        # As long as the evaluator can handle it.
+        {:ok, params} = parse_params(pid)
+
+        {:ok,
+         struct!(Reference,
+           name: lexer.token,
+           value: params,
+           source_location: lexer.source_location
+         )}
+      %Token{token: :lte} = lexer ->
+        Lexer.shift(pid)
+
+        # could pass 2 to parse_params, but I feel like it's fine to let this be variadic.
+        # As long as the evaluator can handle it.
+        {:ok, params} = parse_params(pid)
+
+        {:ok,
+         struct!(Reference,
+           name: lexer.token,
+           value: params,
+           source_location: lexer.source_location
+         )}
+      %Token{token: :gte} = lexer ->
+        Lexer.shift(pid)
+
+        # could pass 2 to parse_params, but I feel like it's fine to let this be variadic.
+        # As long as the evaluator can handle it.
+        {:ok, params} = parse_params(pid)
+
+        {:ok,
+         struct!(Reference,
+           name: lexer.token,
+           value: params,
+           source_location: lexer.source_location
+         )}
+      %Token{token: :gt} = lexer ->
+        Lexer.shift(pid)
+
+        # could pass 2 to parse_params, but I feel like it's fine to let this be variadic.
+        # As long as the evaluator can handle it.
+        {:ok, params} = parse_params(pid)
+
+        {:ok,
+         struct!(Reference,
+           name: lexer.token,
+           value: params,
+           source_location: lexer.source_location
+         )}
+      %Token{token: :eq} = lexer ->
         Lexer.shift(pid)
 
         # could pass 2 to parse_params, but I feel like it's fine to let this be variadic.

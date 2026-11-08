@@ -100,6 +100,7 @@ defmodule Elil.Evaluator do
   end
 
   defguard is_scope_type(type) when type in [:root, :scope, :fn_body]
+  defguard is_boolean_operator(type) when type in [:lt, :lte, :gt, :gte, :eq]
   defguard is_lit(type) when type in [BooleanNode, IntegerNode, StringNode]
 
   @elil_types [:string, :int, :func, :mixed]
@@ -187,7 +188,7 @@ defmodule Elil.Evaluator do
     eval_gass(pid, node)
   end
 
-  defp eval_node(pid, %ReferenceNode{name: :lt} = node) when is_pid(pid) do
+  defp eval_node(pid, %ReferenceNode{name: func} = node) when is_pid(pid) and is_boolean_operator(func) do
     eval_bool(pid, node)
   end
 
@@ -539,12 +540,23 @@ defmodule Elil.Evaluator do
     end
   end
 
-  defp eval_bool(pid, %ReferenceNode{name: :lt} = node) do
+  defp eval_bool(pid, %ReferenceNode{} = node) do
     expect_parameter_count(node, 2)
-    [lt | tail] = node.value
-    [gt | _] = tail
-    lt = %Value{type: :int} = eval_node(pid, lt)
-    gt = %Value{type: :int} = eval_node(pid, gt)
-    Value.lt(lt, gt)
+    [lhs | tail] = node.value
+    [rhs | _] = tail
+    lhs = %Value{type: :int} = eval_node(pid, lhs)
+    rhs = %Value{type: :int} = eval_node(pid, rhs)
+    get_boolean_operator(node.name).(lhs, rhs)
+    |> Value.new(:bool)
+  end
+
+  defp get_boolean_operator(op) when is_atom(op) do
+    case op do
+      :lt -> &(Kernel.<(&1, &2))
+      :lte -> &(Kernel.<=(&1, &2))
+      :gt -> &(Kernel.>(&1, &2))
+      :gte -> &(Kernel.>=(&1, &2))
+      :eq -> &(Kernel.===(&1, &2))
+    end
   end
 end
