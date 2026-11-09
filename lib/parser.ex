@@ -198,7 +198,19 @@ defmodule Elil.Parser do
         case Lexer.shift(pid) do
           %Token{token: :ident} = lexer ->
             ident = parse_ident(pid)
-            {:ok, term} = parse_params(pid, 1)
+
+            term =
+              case parse_params(pid, 1) do
+                {:ok, term} ->
+                  term
+
+                {:err, msg} ->
+                  Elil.Logger.error_log_and_die(
+                    lexer.source_location,
+                    EString.replace(msg, "#(func_name)", to_string(lexer.value))
+                  )
+              end
+
             # validated through parse_params, but this is fine I guess.
             1 = length(term)
 
@@ -286,6 +298,7 @@ defmodule Elil.Parser do
            value: params,
            source_location: lexer.source_location
          )}
+
       %Token{token: :lte} = lexer ->
         Lexer.shift(pid)
 
@@ -299,6 +312,7 @@ defmodule Elil.Parser do
            value: params,
            source_location: lexer.source_location
          )}
+
       %Token{token: :gte} = lexer ->
         Lexer.shift(pid)
 
@@ -312,6 +326,7 @@ defmodule Elil.Parser do
            value: params,
            source_location: lexer.source_location
          )}
+
       %Token{token: :gt} = lexer ->
         Lexer.shift(pid)
 
@@ -325,6 +340,7 @@ defmodule Elil.Parser do
            value: params,
            source_location: lexer.source_location
          )}
+
       %Token{token: :eq} = lexer ->
         Lexer.shift(pid)
 
@@ -432,7 +448,7 @@ defmodule Elil.Parser do
             msg =
               case expected_len > actual_len do
                 true ->
-                  "Too many arguments passed to function: \"#(func_name)\". Expected \"#{to_string(expected_len)}\", but got \"#{to_string(actual_len)}\""
+                  "Too many arguments passed to function: \"#(func_name)\". Expected #{to_string(expected_len)}, but got #{to_string(actual_len)}"
 
                 false ->
                   "Too few arguments passed to function: \"#(func_name)\". Expected \"#{to_string(expected_len)}\", but got \"#{to_string(actual_len)}\""

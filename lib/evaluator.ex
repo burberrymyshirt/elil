@@ -77,7 +77,6 @@ defmodule Elil.Evaluator do
 
           # @see logging errors
           v ->
-
             Elil.Logger.error_log_and_die(
               "unable to parse value \"#{v}\" to an integer"
             )
@@ -188,7 +187,8 @@ defmodule Elil.Evaluator do
     eval_gass(pid, node)
   end
 
-  defp eval_node(pid, %ReferenceNode{name: func} = node) when is_pid(pid) and is_boolean_operator(func) do
+  defp eval_node(pid, %ReferenceNode{name: func} = node)
+       when is_pid(pid) and is_boolean_operator(func) do
     eval_bool(pid, node)
   end
 
@@ -444,7 +444,8 @@ defmodule Elil.Evaluator do
                 struct!(Value, type: Value.Type.void())
               end
 
-            Context.pop_frame(pid) # automatically pops the scope
+            # automatically pops the scope
+            Context.pop_frame(pid)
 
             # TODO: This return might have to be assigned to something
             {:ok, return}
@@ -546,17 +547,18 @@ defmodule Elil.Evaluator do
     [rhs | _] = tail
     lhs = %Value{type: :int} = eval_node(pid, lhs)
     rhs = %Value{type: :int} = eval_node(pid, rhs)
+
     get_boolean_operator(node.name).(lhs, rhs)
     |> Value.new(:bool)
   end
 
   defp get_boolean_operator(op) when is_atom(op) do
     case op do
-      :lt -> &(Kernel.<(&1, &2))
-      :lte -> &(Kernel.<=(&1, &2))
-      :gt -> &(Kernel.>(&1, &2))
-      :gte -> &(Kernel.>=(&1, &2))
-      :eq -> &(Kernel.===(&1, &2))
+      :lt -> &Kernel.<(&1, &2)
+      :lte -> &Kernel.<=(&1, &2)
+      :gt -> &Kernel.>(&1, &2)
+      :gte -> &Kernel.>=(&1, &2)
+      :eq -> &Kernel.===(&1, &2)
     end
   end
 end
