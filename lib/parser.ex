@@ -70,6 +70,8 @@ defmodule Elil.Parser do
             when t in [
                    :let,
                    :ass,
+                   :glet,
+                   :gass,
                    :deffn,
                    :cond_if,
                    :lt,
