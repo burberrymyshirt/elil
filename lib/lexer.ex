@@ -1,6 +1,7 @@
 defmodule Elil.Lexer do
   require Elil.Utils
   import Elil.Utils
+  require Elil.Globals
   alias Elil.Utils.SourceLocation
   import Elil.Logger
   use GenServer
@@ -330,13 +331,34 @@ defmodule Elil.Lexer do
     return_lex({Token.negate(), nil}, context, context_updates)
   end
 
-  defp do_lex(%Context{src_rest: <<"eq", rest::binary>>} = context) do
+  defp do_lex(
+         %Context{
+           src_rest: <<v1::binary-size(1), v2::binary-size(1), rest::binary>>
+         } = context
+       )
+       when Elil.Globals.is_boolean_operator_s(v1 <> v2) do
     context_updates = [
       src_rest: rest,
       chars_since_last_newline: context.chars_since_last_newline + 2
     ]
 
-    return_lex({Token.eq(), nil}, context, context_updates)
+    return_lex({String.to_atom(v1 <> v2), nil}, context, context_updates)
+  end
+
+  defp do_lex(
+         %Context{
+           src_rest:
+             <<v1::binary-size(1), v2::binary-size(1), v3::binary-size(1),
+               rest::binary>>
+         } = context
+       )
+       when Elil.Globals.is_boolean_operator_s(v1 <> v2 <> v3) do
+    context_updates = [
+      src_rest: rest,
+      chars_since_last_newline: context.chars_since_last_newline + 3
+    ]
+
+    return_lex({String.to_atom(v1 <> v2 <> v3), nil}, context, context_updates)
   end
 
   defp do_lex(%Context{src_rest: <<"if", rest::binary>>} = context) do
@@ -346,42 +368,6 @@ defmodule Elil.Lexer do
     ]
 
     return_lex({Token.cond_if(), nil}, context, context_updates)
-  end
-
-  defp do_lex(%Context{src_rest: <<"gt", rest::binary>>} = context) do
-    context_updates = [
-      src_rest: rest,
-      chars_since_last_newline: context.chars_since_last_newline + 2
-    ]
-
-    return_lex({Token.gt(), nil}, context, context_updates)
-  end
-
-  defp do_lex(%Context{src_rest: <<"lt", rest::binary>>} = context) do
-    context_updates = [
-      src_rest: rest,
-      chars_since_last_newline: context.chars_since_last_newline + 2
-    ]
-
-    return_lex({Token.lt(), nil}, context, context_updates)
-  end
-
-  defp do_lex(%Context{src_rest: <<"lte", rest::binary>>} = context) do
-    context_updates = [
-      src_rest: rest,
-      chars_since_last_newline: context.chars_since_last_newline + 3
-    ]
-
-    return_lex({Token.lte(), nil}, context, context_updates)
-  end
-
-  defp do_lex(%Context{src_rest: <<"gte", rest::binary>>} = context) do
-    context_updates = [
-      src_rest: rest,
-      chars_since_last_newline: context.chars_since_last_newline + 3
-    ]
-
-    return_lex({Token.gte(), nil}, context, context_updates)
   end
 
   defp do_lex(%Context{src_rest: <<"deffn", rest::binary>>} = context) do

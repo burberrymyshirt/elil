@@ -12,6 +12,8 @@ defmodule Elil.Evaluator do
   alias Elil.Utils.SourceLocation
   import Elil.Utils
   require Elil.Utils
+  import Elil.Globals
+  require Elil.Globals
 
   defmodule Value do
     @enforce_keys [:type]
@@ -96,20 +98,6 @@ defmodule Elil.Evaluator do
     defp raw_int(%Value{type: :int, value: val} = _v) when is_integer(val) do
       val
     end
-  end
-
-  defguard is_scope_type(type) when type in [:root, :scope, :fn_body]
-  defguard is_boolean_operator(type) when type in [:lt, :lte, :gt, :gte, :eq]
-  defguard is_lit(type) when type in [BooleanNode, IntegerNode, StringNode]
-
-  @elil_types [:string, :int, :func, :mixed]
-
-  defp is_builtin_type(t) when is_atom(t) do
-    t in @elil_types
-  end
-
-  defp is_valid_type(t) do
-    is_builtin_type(t)
   end
 
   def eval(file) do
